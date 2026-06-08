@@ -1,0 +1,390 @@
+"""知识库构建与摄入工作流模块
+
+提供知识库的完整构建和增量更新功能，包括：
+- 单文件 LLM 摄入
+- 批量摄入
+- 全量构建
+- 增量更新
+
+类:
+    IngestWorkflow — 摄入工作流
+"""
+
+import json
+import re
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from storage.db import WikiStorage
+from wiki_engine.constants import SCHEMA_FILE
+from wiki_engine.graph import GraphWorkflow
+from wiki_engine.helpers import (
+    append_log,
+    build_wiki_context,
+    extract_title_from_content,
+    get_ingested_slugs,
+    update_index,
+    validate_ingest,
+)
+from tools.utils import call_llm, parse_json_from_response, sha256
+from wiki_engine.projects import FileImporter
+
+
+class IngestWorkflow:
+    """知识库摄入工作流。
+
+    负责将原始文件通过 LLM 处理，生成 wiki 页面（源页面、实体页面、概念页面），
+    并更新索引和日志。
+
+    Args:
+        db: WikiStorage 数据库实例
+        file_importer: FileImporter 实例，用于文件格式转换
+    """
+
+    def __init__(self, db: WikiStorage, file_importer: FileImporter) -> None:
+        self.db = db
+        self.file_importer = file_importer
+
+    def build_knowledge_base(
+        self,
+        project_id: int,
+        auto_convert: bool = True,
+        skip_graph: bool = False,
+        graph_builder: GraphWorkflow = None,
+    ) -> dict[str, Any]:
+        """对项目中的所有 raw 文件执行完整的知识库构建流程。
+
+        流程：
+            1. 获取项目中所有 raw 文件
+            2. 逐个执行 LLM 摄入
+            3. （可选）构建知识图谱
+
+        Args:
+            project_id: 项目 ID
+            auto_convert: 是否自动转换非 MD 文件（当前未使用，保留接口兼容）
+            skip_graph: 是否跳过图谱构建
+            graph_builder: GraphWorkflow 实例，用于构建图谱；若为 ``None`` 且
+                ``skip_graph=False``，将跳过图谱构建
+
+        Returns:
+            构建结果字典，包含：
+            - ``project_id``: 项目 ID
+            - ``project_name``: 项目名称
+            - ``status``: 状态字符串（``"completed"`` / ``"no_raw_files"``）
+            - ``ingested``: 成功摄入的文件数
+            - ``total_raw_files``: 原始文件总数
+            - ``pages_created``: 创建的 wiki 页面路径列表
+            - ``errors``: 错误信息列表
+
+        Raises:
+            ValueError: 项目不存在
+        """
+        proj = self.db.get_project(project_id)
+        if not proj:
+            raise ValueError(f"项目不存在: {project_id}")
+
+        raw_files = self.db.list_files_by_category(project_id, "raw")
+        if not raw_files:
+            return {
+                "project_id": project_id,
+                "project_name": proj["name"],
+                "status": "no_raw_files",
+                "message": "没有找到原始文件，请先使用 import_raw_files() 导入",
+                "ingested": 0,
+                "pages_created": [],
+                "errors": [],
+            }
+
+        print(f"\n{'='*60}")
+        print(f"  开始构建知识库: {proj['name']} (id={project_id})")
+        print(f"  原始文件数: {len(raw_files)}")
+        print(f"{'='*60}\n")
+
+        ingested = 0
+        all_created: list[str] = []
+        errors: list[dict] = []
+
+        for f in raw_files:
+            rel_path = f["relative_path"]
+            filename = Path(rel_path).name
+            print(f"\n--- 摄入: {filename} ---")
+
+            try:
+                md_content = self.db.get_file_text_by_path(project_id, rel_path)
+                if md_content is None:
+                    errors.append({"file": filename, "error": "文件内容为空"})
+                    continue
+
+                if not md_content.strip():
+                    errors.append({"file": filename, "error": "文件内容为空"})
+                    continue
+
+                result = self.ingest_single(project_id, filename, md_content)
+                ingested += 1
+                all_created.extend(result.get("pages_created", []))
+
+            except Exception as e:
+                errors.append({"file": filename, "error": str(e)})
+                print(f"  [ERROR] {filename}: {e}")
+
+        if not skip_graph and ingested > 0 and graph_builder is not None:
+            print("\n\n--- 构建知识图谱 ---")
+            try:
+                graph_result = graph_builder.build_graph(project_id)
+                print(f"  图谱: {graph_result.get('n_nodes', 0)} 节点, {graph_result.get('n_edges', 0)} 边")
+            except Exception as e:
+                print(f"  [WARN] 图谱构建失败: {e}")
+
+        print(f"\n{'='*60}")
+        print(f"  知识库构建完成!")
+        print(f"  摄入文件: {ingested}/{len(raw_files)}")
+        print(f"  创建页面: {len(all_created)}")
+        print(f"  错误数: {len(errors)}")
+        print(f"{'='*60}\n")
+
+        return {
+            "project_id": project_id,
+            "project_name": proj["name"],
+            "status": "completed",
+            "ingested": ingested,
+            "total_raw_files": len(raw_files),
+            "pages_created": all_created,
+            "errors": errors,
+        }
+
+    def ingest_single(
+        self, project_id: int, source_filename: str, source_content: str
+    ) -> dict[str, Any]:
+        """对单个原始文件执行 LLM 摄入。
+
+        将源文档发送给 LLM，由 LLM 生成源页面、实体页面、概念页面，
+        并更新索引和日志。最后执行摄入后验证。
+
+        Args:
+            project_id: 项目 ID
+            source_filename: 源文件名
+            source_content: 源文件 Markdown 内容
+
+        Returns:
+            摄入结果字典，包含：
+            - ``title``: 源文档标题
+            - ``slug``: 源文档 slug, 原文档的文件名，转换为 kebab-case 格式
+            - ``pages_created``: 创建的页面路径列表
+            - ``contradictions``: 检测到的矛盾列表
+            - ``validation``: 验证结果字典
+
+        Raises:
+            RuntimeError: LLM 响应解析失败
+        """
+        today = date.today().isoformat()
+        source_hash = sha256(source_content)
+
+        wiki_context = build_wiki_context(self.db, project_id)
+        schema = SCHEMA_FILE.read_text(encoding="utf-8")
+        proj = self.db.get_project(project_id)
+        proj_name = proj["name"] if proj else "unknown"
+
+        prompt = f"""你正在维护一个企业知识库 Wiki。处理这份源文档并将其知识整合到 Wiki 中。
+
+项目: {proj_name}
+
+格式规范:
+{schema}
+
+当前 Wiki 状态:
+{wiki_context if wiki_context else "(Wiki 为空 — 这是第一份源文档)"}
+
+待摄入的新源文档 (文件: {source_filename}):
+=== 源文档开始 ===
+{source_content}
+=== 源文档结束 ===
+
+当前日期: {today}
+
+只返回一个有效的 JSON 对象(不要 markdown 代码围栏，不要 JSON 之外的任何文字):
+{{
+  "title": "源文档的人类可读标题",
+  "slug": "kebab-case-slug",
+  "source_page": "wiki/sources/<slug>.md 的完整 markdown 内容 — 使用 schema 中的源页面格式。关键：将关键人物、产品、概念和项目积极转换为内联 [[WikiLink]]",
+  "index_entry": "- [标题](sources/slug.md) — 一行摘要",
+  "overview_update": "wiki/overview.md 的完整更新内容，或 null",
+  "entity_pages": [
+    {{"path": "entities/实体名.md", "content": "完整 markdown 内容"}}
+  ],
+  "concept_pages": [
+    {{"path": "concepts/概念名.md", "content": "完整 markdown 内容"}}
+  ],
+  "contradictions": ["描述与现有 Wiki 内容的任何矛盾，或空列表"],
+  "log_entry": "## [{today}] ingest | <标题>\\n\\n摄入源文档。关键主张: ..."
+}}
+
+重要提示:
+- source_page、entity_pages 和 concept_pages 中的每一页都必须包含完整的 YAML frontmatter (title, type, tags, sources 等字段)
+- slug使用中文，内容使用中文
+- Wiki 链接必须使用目标页面的 **slug（文件名，不含 .md 扩展名）**，而不是 title，不一致时使用 slug
+"""
+        print(f"  调用 LLM API...")
+        raw = call_llm(prompt, max_tokens=16384)
+        try:
+            data = parse_json_from_response(raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            from wiki_engine.constants import REPO_ROOT
+            debug_file = REPO_ROOT / "tmp" / f"ingest_debug_{project_id}.txt"
+            debug_file.parent.mkdir(exist_ok=True)
+            debug_file.write_text(raw, encoding="utf-8")
+            raise RuntimeError(f"API 响应解析失败: {e}") from e
+
+        pages_created: list[str] = []
+
+        slug = data.get("slug", "")
+        source_path = f"wiki/sources/{slug}.md"
+        self.db.add_file(project_id, source_path, data.get("source_page", ""))
+        pages_created.append(source_path)
+
+        for page in data.get("entity_pages", []):
+            wiki_path = f"wiki/{page['path']}"
+            self.db.add_file(project_id, wiki_path, page["content"])
+            pages_created.append(wiki_path)
+            entity_title = extract_title_from_content(page["content"])
+            entity_entry = f"- [{entity_title}]({page['path']})"
+            update_index(self.db, project_id, entity_entry, section="Entities")
+
+        for page in data.get("concept_pages", []):
+            wiki_path = f"wiki/{page['path']}"
+            self.db.add_file(project_id, wiki_path, page["content"])
+            pages_created.append(wiki_path)
+            concept_title = extract_title_from_content(page["content"])
+            concept_entry = f"- [{concept_title}]({page['path']})"
+            update_index(self.db, project_id, concept_entry, section="Concepts")
+
+        # 更新概述
+        if data.get("overview_update"):
+            self.db.add_file(project_id, "wiki/overview.md", data["overview_update"])
+
+        update_index(self.db, project_id, data.get("index_entry", ""), section="Sources")
+        append_log(self.db, project_id, data.get("log_entry", ""))
+
+        contradictions = data.get("contradictions", [])
+        if contradictions:
+            print(f"  [WARN] 检测到 {len(contradictions)} 处矛盾:")
+            for c in contradictions:
+                print(f"     - {c}")
+
+        validation = validate_ingest(self.db, project_id, pages_created)
+        if validation["broken_links"]:
+            print(f"  [WARN] {len(validation['broken_links'])} 个损坏链接")
+        if validation["unindexed"]:
+            print(f"  [WARN] {len(validation['unindexed'])} 个未索引页面")
+        if not validation["broken_links"] and not validation["unindexed"]:
+            print(f"  验证通过 ✓")
+
+        return {
+            "title": data.get("title", ""),
+            "slug": slug,
+            "pages_created": pages_created,
+            "contradictions": contradictions,
+            "validation": validation,
+        }
+
+    def update_knowledge_base(
+        self,
+        project_id: int,
+        source_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """增量更新知识库。
+
+        流程：
+            1. 若提供了 ``source_dir``，先导入新的原始文件
+            2. 对比已摄入 slug，找出尚未处理的新文件
+            3. 对新文件执行 LLM 摄入
+
+        Args:
+            project_id: 项目 ID
+            source_dir: 可选的源文件目录路径，若提供则先导入文件
+
+        Returns:
+            与 :meth:`build_knowledge_base` 格式相同的字典；
+            若没有新文件则 ``status`` 为 ``"up_to_date"``
+        """
+        if source_dir:
+            import_stats = self.file_importer.import_raw_files(project_id, Path(source_dir))
+            print(f"  导入完成: {import_stats}")
+
+        ingested_slugs = get_ingested_slugs(self.db, project_id)
+        raw_files = self.db.list_files_by_category(project_id, "raw")
+        new_files = [
+            f for f in raw_files
+            if Path(f["relative_path"]).stem.lower() not in ingested_slugs
+        ]
+
+        if not new_files:
+            return {
+                "project_id": project_id,
+                "status": "up_to_date",
+                "message": "知识库已是最新状态，没有新的原始文件需要处理",
+                "ingested": 0,
+                "pages_created": [],
+                "errors": [],
+            }
+
+        print(f"\n  发现 {len(new_files)} 个新文件待摄入")
+        return self._run_ingest_batch(project_id, new_files)
+
+    def _run_ingest_batch(
+        self, project_id: int, raw_files: list[dict]
+    ) -> dict[str, Any]:
+        """对一批原始文件执行摄入。
+
+        逐个处理文件：非 MD 文件先转换为 Markdown，然后执行 LLM 摄入。
+
+        Args:
+            project_id: 项目 ID
+            raw_files: 待处理的文件记录列表
+
+        Returns:
+            摄入结果字典
+        """
+        proj = self.db.get_project(project_id)
+        ingested = 0
+        all_created: list[str] = []
+        errors: list[dict] = []
+
+        for f in raw_files:
+            filename = Path(f["relative_path"]).name
+            print(f"\n--- 摄入: {filename} ---")
+            try:
+                content_bytes = self.db.get_file_content(f["id"])
+                if content_bytes is None:
+                    continue
+
+                md_content: str | None = None
+                if Path(filename).suffix.lower() != ".md":
+                    print(f"  转换 {filename} 为 Markdown...")
+                    md_content = self.file_importer.convert_to_md(content_bytes, filename)
+                    if md_content is None:
+                        errors.append({"file": filename, "error": f"格式不支持: {Path(filename).suffix}"})
+                        continue
+                    converted_path = f"raw/{Path(filename).stem}.md"
+                    self.db.add_file(project_id, converted_path, md_content)
+                else:
+                    md_content = content_bytes.decode("utf-8", errors="replace")
+
+                if not md_content or not md_content.strip():
+                    continue
+
+                result = self.ingest_single(project_id, filename, md_content)
+                ingested += 1
+                all_created.extend(result.get("pages_created", []))
+            except Exception as e:
+                errors.append({"file": filename, "error": str(e)})
+
+        return {
+            "project_id": project_id,
+            "project_name": proj["name"] if proj else "",
+            "status": "completed",
+            "ingested": ingested,
+            "total_raw_files": len(raw_files),
+            "pages_created": all_created,
+            "errors": errors,
+        }

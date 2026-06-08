@@ -1,0 +1,37 @@
+# pyproject.toml - Python项目配置文件
+# 遵循 PEP 621 标准格式
+
+[project]
+# 项目名称
+name = "llm-wiki"
+# 项目版本号 (语义化版本控制)
+version = "0.1.0"
+# 项目描述 (建议填写)
+description = "LLM-powered wiki knowledge management system"
+# 作者信息列表
+authors = [
+    {name = "Your Name", email = "you@example.com"}
+]
+# README文件路径
+readme = "README.md"
+# Python版本要求
+requires-python = ">=3.10,<3.14"
+# 项目依赖包
+dependencies = [
+    "markitdown[all] (>=0.1.5,<0.2.0)",  # 文档转换工具，支持多种格式转Markdown
+    "tqdm (>=4.67.3,<5.0.0)"              # 进度条库
+]
+
+# 构建系统配置 - 使用uv兼容的后端
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]  # 构建依赖
+build-backend = "setuptools.build_meta"   # 使用标准setuptools构建后端
+
+[tool.poetry]
+package-mode = false
+
+# uv包管理器配置
+[[tool.uv.index]]
+name = "tsinghua"                          # 镜像名称
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"  # 清华大学PyPI镜像地址
+default = true                             # 设置为默认镜像源

@@ -1,0 +1,2494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Wiki — 企业知识库</title>
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+  <script>
+    // Fallback if CDN fails
+    if (typeof vis === 'undefined') {
+      document.write('<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"><\/script>');
+    }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117;
+      --sidebar-bg: #161822;
+      --panel-bg: #1a1d2e;
+      --border: #2a2d3e;
+      --text: #e2e4f0;
+      --text-dim: #8b8fa3;
+      --accent: #6c63ff;
+      --accent-hover: #7b73ff;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --file-raw: #60a5fa;
+      --file-wiki: #34d399;
+      --file-graph: #fbbf24;
+      --file-concept: #a78bfa;
+      --file-entity: #f472b6;
+      --file-source: #38bdf8;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── 顶部导航栏 ─────────────────────────────────────── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      height: 48px;
+      padding: 0 16px;
+      background: var(--sidebar-bg);
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .topbar .logo {
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .topbar .logo svg { width: 20px; height: 20px; }
+    .project-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 24px;
+    }
+    .project-selector select {
+      background: var(--panel-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      min-width: 200px;
+      cursor: pointer;
+    }
+    .project-selector select:focus { outline: none; border-color: var(--accent); }
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-success { background: var(--success); color: #000; }
+    .btn-success:hover { background: #2dd4a8; }
+
+    /* ── 主布局 ─────────────────────────────────────────── */
+    .main-layout {
+      display: flex;
+      height: calc(100vh - 48px);
+    }
+
+    /* ── 左侧边栏 ───────────────────────────────────────── */
+    .sidebar {
+      width: 280px;
+      min-width: 280px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sidebar-header h3 { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .search-box {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-box input {
+      width: 100%;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .search-box input:focus { outline: none; border-color: var(--accent); }
+    .tree-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .tree-container::-webkit-scrollbar { width: 6px; }
+    .tree-container::-webkit-scrollbar-track { background: transparent; }
+    .tree-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── 文件树 ─────────────────────────────────────────── */
+    .tree-node { user-select: none; }
+    .tree-label {
+      display: flex;
+      align-items: center;
+      padding: 4px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      gap: 6px;
+      transition: background 0.1s;
+    }
+    .tree-label:hover { background: rgba(108, 99, 255, 0.08); }
+    .tree-label.active { background: rgba(108, 99, 255, 0.15); color: var(--accent); }
+    .tree-label .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .tree-label .icon svg { width: 14px; height: 14px; }
+    .tree-children { padding-left: 16px; }
+    .tree-children.collapsed { display: none; }
+    .tree-label .arrow {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+    .tree-label .arrow.open { transform: rotate(90deg); }
+    .tree-label .arrow.hidden { visibility: hidden; }
+
+    /* 文件类型颜色 */
+    .type-raw { color: var(--file-raw); }
+    .type-wiki { color: var(--file-wiki); }
+    .type-graph { color: var(--file-graph); }
+    .type-concept { color: var(--file-concept); }
+    .type-entity { color: var(--file-entity); }
+    .type-source { color: var(--file-source); }
+
+    /* ── 主内容区 ───────────────────────────────────────── */
+    .content-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .content-toolbar {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+      min-height: 44px;
+    }
+    .content-toolbar .title {
+      font-size: 14px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .content-toolbar .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--panel-bg);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .graph-file-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .graph-file-selector select {
+      background: var(--panel-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      max-width: 200px;
+    }
+    .graph-file-selector select:focus { outline: none; border-color: var(--accent); }
+
+    /* ── 图谱视图 ───────────────────────────────────────── */
+    .graph-view {
+      flex: 1;
+      position: relative;
+      background: #040719;
+      overflow: hidden;
+    }
+    .starfield {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .star {
+      position: absolute;
+      border-radius: 50%;
+      background: #fff;
+    }
+    #graph-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      z-index: 2;
+    }
+    #graph-container canvas {
+      filter:
+        drop-shadow(0 0 12px rgba(255, 214, 72, 0.08))
+        drop-shadow(0 0 40px rgba(62, 184, 255, 0.04))
+        drop-shadow(0 0 80px rgba(134, 232, 184, 0.03));
+    }
+    .graph-legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(4, 7, 25, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 11px;
+      display: flex;
+      gap: 14px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+      z-index: 3;
+    }
+    .legend-item { display: flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.7); }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+
+    /* ── 文件内容视图 ───────────────────────────────────── */
+    .file-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .file-view::-webkit-scrollbar { width: 6px; }
+    .file-view::-webkit-scrollbar-track { background: transparent; }
+    .file-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .file-content {
+      max-width: 800px;
+      margin: 0 auto;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+    .file-content h1 { font-size: 24px; margin-bottom: 16px; color: var(--accent); }
+    .file-content h2 { font-size: 20px; margin: 24px 0 12px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .file-content h3 { font-size: 16px; margin: 20px 0 8px; }
+    .file-content p { margin-bottom: 12px; }
+    .file-content code {
+      background: var(--panel-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: var(--accent);
+    }
+    .file-content pre {
+      background: var(--panel-bg);
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .file-content pre code { background: none; padding: 0; }
+    .file-content ul, .file-content ol { padding-left: 24px; margin-bottom: 12px; }
+    .file-content li { margin-bottom: 4px; }
+    .file-content blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 16px;
+      margin: 12px 0;
+      color: var(--text-dim);
+    }
+    .file-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+    }
+    .file-content th, .file-content td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .file-content th { background: var(--panel-bg); }
+    .file-content a { color: var(--accent); text-decoration: none; }
+    .file-content a:hover { text-decoration: underline; }
+
+    /* ── JSON 查看器样式 ────────────────────────────────── */
+    .json-viewer {
+      max-width: 100%;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 13px;
+    }
+    .json-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .json-tree {
+      background: var(--panel-bg);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+    .json-node {
+      margin: 4px 0;
+    }
+    .json-toggle {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .json-toggle:hover {
+      color: var(--accent);
+    }
+    .json-arrow {
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      transition: transform 0.15s;
+      font-size: 10px;
+    }
+    .json-type {
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+    .json-count {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .json-children {
+      margin-left: 24px;
+      border-left: 1px dashed var(--border);
+      padding-left: 12px;
+    }
+    .json-item {
+      margin: 4px 0;
+    }
+    .json-key {
+      color: #60a5fa;
+      font-weight: 500;
+    }
+    .json-value {
+      margin-left: 4px;
+    }
+    .json-string { color: #6ee7b7; }
+    .json-number { color: #fbbf24; }
+    .json-boolean { color: #f472b6; }
+    .json-null { color: #9ca3af; font-style: italic; }
+    .json-bracket {
+      color: var(--text-dim);
+    }
+    .json-comma {
+      color: var(--text-dim);
+    }
+    .json-viewer .error {
+      color: var(--danger);
+      margin-bottom: 12px;
+      padding: 8px;
+      background: rgba(248, 113, 113, 0.1);
+      border-radius: 4px;
+    }
+
+    /* ── HTML 查看器样式 ────────────────────────────────── */
+    .html-viewer {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .html-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .html-preview {
+      flex: 1;
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .html-iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+    .html-source {
+      background: var(--panel-bg);
+      border-radius: 8px;
+      padding: 16px;
+      overflow: auto;
+    }
+
+    /* ── 文本查看器样式 ─────────────────────────────────── */
+    .text-viewer {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 13px;
+    }
+    .text-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .file-type-badge {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .text-viewer pre {
+      background: var(--panel-bg);
+      border-radius: 8px;
+      padding: 16px;
+      overflow: auto;
+    }
+
+    /* ── 空状态 ─────────────────────────────────────────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      gap: 12px;
+    }
+    .empty-state svg { width: 64px; height: 64px; opacity: 0.3; }
+    .empty-state p { font-size: 14px; }
+
+    /* ── 加载指示器 ─────────────────────────────────────── */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-dim);
+      gap: 8px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 模态框 ─────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal {
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 400px;
+      max-width: 90vw;
+    }
+    .modal h3 { margin-bottom: 16px; }
+    .modal input {
+      width: 100%;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .modal input:focus { outline: none; border-color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+    /* ── 状态标签 ───────────────────────────────────────── */
+    .status-bar {
+      padding: 4px 16px;
+      background: var(--sidebar-bg);
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      gap: 16px;
+    }
+
+    /* ── 内容主体 flex 容器 ─────────────────────────────── */
+    .content-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── 节点详情面板 ────────────────────────────────────── */
+    .detail-panel {
+      width: 420px;
+      min-width: 280px;
+      max-width: 70vw;
+      background: var(--sidebar-bg);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 0;
+      position: relative;
+    }
+    .detail-panel::-webkit-scrollbar { width: 6px; }
+    .detail-panel::-webkit-scrollbar-track { background: transparent; }
+    .detail-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .detail-resize-handle {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 10;
+      transition: background 0.15s;
+    }
+    .detail-resize-handle:hover,
+    .detail-resize-handle.active {
+      background: var(--accent);
+    }
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--sidebar-bg);
+      z-index: 1;
+    }
+    .detail-header h3 {
+      font-size: 13px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .detail-close {
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 20px;
+      line-height: 1;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+    .detail-close:hover { background: var(--panel-bg); color: var(--text); }
+    .detail-body { padding: 16px; }
+    .detail-field { margin-bottom: 18px; }
+    .detail-field:last-child { margin-bottom: 0; }
+    .detail-field-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .detail-field-value {
+      font-size: 13px;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .detail-field-value .type-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .detail-path {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      background: var(--panel-bg);
+      padding: 6px 10px;
+      border-radius: 6px;
+      word-break: break-all;
+    }
+    .detail-preview-box {
+      background: var(--panel-bg);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text-dim);
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .detail-preview-box h1, .detail-preview-box h2, .detail-preview-box h3 {
+      color: var(--text);
+      margin: 6px 0 4px;
+      font-size: 14px;
+    }
+    .detail-preview-box h2 { font-size: 13px; }
+    .detail-preview-box h3 { font-size: 12px; }
+    .detail-preview-box p { margin-bottom: 6px; }
+    .detail-preview-box code {
+      background: rgba(108, 99, 255, 0.1);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+    .detail-markdown-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      padding: 6px 10px;
+      background: var(--panel-bg);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .detail-markdown-toggle:hover { background: var(--border); color: var(--text); }
+    .detail-markdown-toggle .arrow {
+      transition: transform 0.2s;
+      font-size: 10px;
+    }
+    .detail-markdown-toggle .arrow.open { transform: rotate(180deg); }
+    .detail-markdown-content {
+      display: none;
+      margin-top: 8px;
+      background: var(--panel-bg);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.7;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .detail-markdown-content.open { display: block; }
+    .detail-markdown-content h1, .detail-markdown-content h2, .detail-markdown-content h3 {
+      color: var(--accent);
+      margin: 8px 0 4px;
+    }
+    .detail-markdown-content p { margin-bottom: 6px; }
+    .detail-markdown-content code {
+      background: rgba(108, 99, 255, 0.1);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .detail-markdown-content pre {
+      background: var(--bg);
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 6px 0;
+    }
+    .detail-markdown-content ul, .detail-markdown-content ol { padding-left: 20px; margin-bottom: 6px; }
+    .detail-markdown-content li { margin-bottom: 2px; }
+    .detail-markdown-content blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      margin: 6px 0;
+      color: var(--text-dim);
+    }
+
+    /* ── 置信度滑块 ─────────────────────────────────────── */
+    .confidence-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-left: 12px;
+      padding-left: 12px;
+      border-left: 1px solid var(--border);
+    }
+    .confidence-label { white-space: nowrap; }
+    .confidence-control input[type="range"] {
+      width: 110px;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+    }
+    .confidence-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid var(--bg);
+      box-shadow: 0 0 6px rgba(108, 99, 255, 0.4);
+    }
+    .confidence-control input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid var(--bg);
+    }
+    .confidence-value {
+      min-width: 28px;
+      text-align: center;
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 13px;
+    }
+
+    /* ── 聊天面板 ─────────────────────────────────────── */
+    .chat-toggle-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 24px rgba(108, 99, 255, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+      z-index: 50;
+    }
+    .chat-toggle-btn:hover {
+      transform: scale(1.08);
+      box-shadow: 0 6px 32px rgba(108, 99, 255, 0.55);
+    }
+    .chat-toggle-btn svg {
+      width: 26px;
+      height: 26px;
+    }
+    .chat-panel {
+      position: fixed;
+      bottom: 92px;
+      right: 24px;
+      width: 420px;
+      max-width: calc(100vw - 48px);
+      height: 560px;
+      max-height: calc(100vh - 140px);
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 48px rgba(0, 0, 0, 0.5);
+      z-index: 50;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .chat-panel.hidden {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+      pointer-events: none;
+    }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+    }
+    .chat-header h3 {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .chat-header .chat-close {
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 20px;
+      line-height: 1;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .chat-header .chat-close:hover {
+      background: var(--panel-bg);
+      color: var(--text);
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chat-messages::-webkit-scrollbar { width: 5px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .chat-message {
+      display: flex;
+      gap: 10px;
+      max-width: 92%;
+    }
+    .chat-message.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    .chat-message.assistant {
+      align-self: flex-start;
+    }
+    .chat-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    .chat-message.user .chat-avatar {
+      background: var(--accent);
+      color: #fff;
+    }
+    .chat-message.assistant .chat-avatar {
+      background: var(--panel-bg);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .chat-bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 13px;
+      line-height: 1.65;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .chat-message.user .chat-bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-message.assistant .chat-bubble {
+      background: var(--panel-bg);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+    .chat-bubble h1, .chat-bubble h2, .chat-bubble h3 {
+      margin: 8px 0 4px;
+      font-size: 14px;
+      color: var(--accent);
+    }
+    .chat-bubble h2 { font-size: 13px; }
+    .chat-bubble h3 { font-size: 12px; }
+    .chat-bubble code {
+      background: rgba(108, 99, 255, 0.15);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+    .chat-bubble pre {
+      background: var(--bg);
+      padding: 8px 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 6px 0;
+    }
+    .chat-bubble pre code {
+      background: none;
+      padding: 0;
+    }
+    .chat-bubble ul, .chat-bubble ol {
+      padding-left: 18px;
+      margin: 4px 0;
+    }
+    .chat-bubble li { margin-bottom: 2px; }
+    .chat-bubble blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 10px;
+      margin: 6px 0;
+      color: var(--text-dim);
+    }
+    .chat-bubble a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .chat-bubble a:hover { text-decoration: underline; }
+    .chat-bubble strong { color: var(--text); }
+    .chat-bubble em { color: var(--text-dim); }
+    .chat-typing .chat-bubble {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .chat-input-area {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--sidebar-bg);
+    }
+    .chat-input-area textarea {
+      flex: 1;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      resize: none;
+      min-height: 42px;
+      max-height: 120px;
+      line-height: 1.5;
+    }
+    .chat-input-area textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .chat-input-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+    .chat-send-btn {
+      align-self: flex-end;
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .chat-send-btn:hover { background: var(--accent-hover); }
+    .chat-send-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .chat-send-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+    .chat-welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      gap: 8px;
+      padding: 32px 16px;
+      text-align: center;
+    }
+    .chat-welcome svg {
+      width: 48px;
+      height: 48px;
+      opacity: 0.3;
+    }
+    .chat-welcome p {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部导航栏 -->
+  <div class="topbar">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"/>
+      </svg>
+      LLM Wiki
+    </div>
+    <div class="project-selector">
+      <select id="projectSelect"><option value="">选择项目...</option></select>
+      <button class="btn btn-sm" onclick="showCreateModal()">+ 新建</button>
+      <button class="btn btn-sm btn-outline" onclick="importFiles()">导入文件</button>
+      <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" style="color:var(--danger);border-color:var(--danger);">删除项目</button>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm btn-outline" onclick="buildKnowledgeBase()">构建知识库</button>
+    <button class="btn btn-sm btn-outline" onclick="buildGraph()">构建图谱</button>
+    <button class="btn btn-sm btn-outline" onclick="lintProject()">质量检查</button>
+    <button class="btn btn-sm btn-outline" onclick="showQueryModal()">查询</button>
+  </div>
+
+  <!-- 主布局 -->
+  <div class="main-layout">
+    <!-- 左侧边栏 -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h3>文件浏览器</h3>
+        <span id="fileCount" class="badge">0 文件</span>
+      </div>
+      <div class="search-box">
+        <input type="text" id="treeSearch" placeholder="搜索文件..." oninput="filterTree(this.value)">
+      </div>
+      <div class="tree-container" id="treeContainer">
+        <div class="empty-state" style="padding: 40px 16px;">
+          <p>选择项目以查看文件</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="content-area">
+      <div class="content-toolbar" id="contentToolbar">
+        <span class="title" id="contentTitle">知识图谱</span>
+        <span class="badge" id="contentBadge"></span>
+        <div class="graph-file-selector" id="graphFileSelector" style="display:none;">
+          <select id="graphFileSelect" onchange="onGraphFileChange(this.value)"></select>
+        </div>
+        <div class="confidence-control" id="confidenceControl" style="display:none;">
+          <span class="confidence-label">置信度</span>
+          <input type="range" id="confidenceSlider" min="0" max="1" step="0.05" value="0.3" oninput="onConfidenceChange(this.value)">
+          <span class="confidence-value" id="confidenceValue">0.3</span>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn btn-sm btn-outline" id="btnToggleView" onclick="toggleView()">文件视图</button>
+      </div>
+
+      <!-- 内容主体（图谱 + 详情 + 文件） -->
+      <div class="content-body">
+
+        <!-- 图谱视图 -->
+        <div class="graph-view" id="graphView">
+          <div class="starfield" id="starfield"></div>
+          <div id="graph-container"></div>
+          <div class="graph-legend" id="graphLegend" style="display:none;">
+            <div class="legend-item"><div class="legend-dot" style="background:#86E8B8;color:#86E8B8"></div>source 源数据</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#3EB8FF;color:#3EB8FF"></div>entity 实体</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#FFD648;color:#FFD648"></div>concept 核心</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#E96FC2;color:#E96FC2"></div>synthesis 综合</div>
+          </div>
+        </div>
+
+        <!-- 节点详情面板 -->
+        <div class="detail-panel" id="detailPanel" style="display:none;">
+          <div class="detail-resize-handle" id="detailResizeHandle"></div>
+          <div class="detail-header">
+            <h3>节点详情</h3>
+            <div class="detail-close" onclick="closeDetailPanel()">&times;</div>
+          </div>
+          <div class="detail-body" id="detailBody"></div>
+        </div>
+
+        <!-- 文件内容视图 -->
+        <div class="file-view" id="fileView" style="display:none;">
+          <div class="file-content" id="fileContent"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="status-bar">
+    <span id="statusText">就绪</span>
+    <span id="statusProject"></span>
+  </div>
+
+  <!-- 聊天按钮 -->
+  <button class="chat-toggle-btn" onclick="toggleChat()" title="与知识库对话">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>
+
+  <!-- 聊天面板 -->
+  <div class="chat-panel hidden" id="chatPanel">
+    <div class="chat-header">
+      <h3>💬 知识库问答</h3>
+      <div class="chat-close" onclick="toggleChat()">&times;</div>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-welcome" id="chatWelcome">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4"/>
+        </svg>
+        <p>向知识库提问<br>AI 将基于知识库内容回答</p>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <textarea id="chatInput" placeholder="输入问题，按 Enter 发送..." rows="1" onkeydown="onChatKeyDown(event)"></textarea>
+      <button class="chat-send-btn" id="chatSendBtn" onclick="sendChatMessage()" title="发送">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 新建项目模态框 -->
+  <div class="modal-overlay hidden" id="createModal">
+    <div class="modal">
+      <h3>新建项目</h3>
+      <input type="text" id="newProjectName" placeholder="项目名称">
+      <input type="text" id="newProjectDesc" placeholder="描述（可选）">
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="hideModal('createModal')">取消</button>
+        <button class="btn" onclick="createProject()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 查询模态框 -->
+  <div class="modal-overlay hidden" id="queryModal">
+    <div class="modal" style="width:500px;">
+      <h3>查询知识库</h3>
+      <input type="text" id="queryInput" placeholder="输入你的问题...">
+      <div id="queryResult" style="max-height:300px;overflow-y:auto;margin-top:12px;font-size:13px;line-height:1.6;white-space:pre-wrap;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="hideModal('queryModal')">关闭</button>
+        <button class="btn" onclick="runQuery()">查询</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 质量检查报告模态框 -->
+  <div class="modal-overlay hidden" id="lintModal">
+    <div class="modal" style="width:640px;max-width:90vw;">
+      <h3>质量检查报告</h3>
+      <div id="lintResult" style="max-height:500px;overflow-y:auto;margin-top:12px;font-size:13px;line-height:1.7;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="hideModal('lintModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导入文件模态框 -->
+  <div class="modal-overlay hidden" id="importModal">
+    <div class="modal">
+      <h3>导入文件</h3>
+      <input type="text" id="importDir" placeholder="本地目录路径">
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="hideModal('importModal')">取消</button>
+        <button class="btn" onclick="doImport()">导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除项目确认模态框 -->
+  <div class="modal-overlay hidden" id="deleteModal">
+    <div class="modal">
+      <h3>删除项目</h3>
+      <p style="color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
+        确定要删除项目 <strong style="color:var(--danger);" id="deleteProjectName">—</strong> 吗？<br>
+        此操作将<strong style="color:var(--danger);">永久删除</strong>该项目及其所有关联文件，不可恢复。
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="hideModal('deleteModal')">取消</button>
+        <button class="btn" style="background:var(--danger);" onclick="deleteProject()">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── 全局状态 ──────────────────────────────────────────
+    const API = '';
+    let currentProjectId = null;
+    let currentView = 'graph'; // 'graph' | 'file'
+    let network = null;
+    let treeData = null;
+    let currentFilePath = null;
+    let currentGraphFile = 'graph/graph.json';
+    let graphFilesList = [];
+
+    // ── API 工具函数 ──────────────────────────────────────
+    async function api(path, options = {}) {
+      const url = `${API}/api${path}`;
+      const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      return res.json();
+    }
+
+    async function apiText(path, options = {}) {
+      const url = `${API}/api${path}`;
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.text();
+    }
+
+    function setStatus(text) {
+      document.getElementById('statusText').textContent = text;
+    }
+
+    // ── 项目列表 ──────────────────────────────────────────
+    async function loadProjects() {
+      const projects = await api('/projects');
+      const select = document.getElementById('projectSelect');
+      select.innerHTML = '<option value="">选择项目...</option>';
+      projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        select.appendChild(opt);
+      });
+      if (currentProjectId) {
+        select.value = currentProjectId;
+      }
+    }
+
+    document.getElementById('projectSelect').addEventListener('change', async (e) => {
+      const pid = e.target.value;
+      if (pid) {
+        currentProjectId = parseInt(pid);
+        await loadProject(currentProjectId);
+      } else {
+        currentProjectId = null;
+        resetView();
+      }
+    });
+
+    async function loadProject(pid) {
+      try {
+        const proj = await api(`/projects/${pid}`);
+        document.getElementById('statusProject').textContent = `项目: ${proj.name}`;
+        setStatus('加载文件树...');
+        await loadTree(pid);
+        setStatus('加载图谱文件列表...');
+        await loadGraphFiles(pid);
+        setStatus('加载图谱...');
+        await loadGraph(pid);
+        setStatus('就绪');
+      } catch (err) {
+        setStatus(`错误: ${err.message}`);
+      }
+    }
+
+    function resetView() {
+      document.getElementById('statusProject').textContent = '';
+      document.getElementById('fileCount').textContent = '0 文件';
+      document.getElementById('treeContainer').innerHTML = '<div class="empty-state" style="padding:40px 16px;"><p>选择项目以查看文件</p></div>';
+      document.getElementById('contentTitle').textContent = '知识图谱';
+      document.getElementById('contentBadge').textContent = '';
+      document.getElementById('graphFileSelector').style.display = 'none';
+      document.getElementById('confidenceControl').style.display = 'none';
+      document.getElementById('detailPanel').style.display = 'none';
+      if (window._nudgeTimer) { clearInterval(window._nudgeTimer); window._nudgeTimer = null; }
+      if (network) { network.destroy(); network = null; }
+      document.getElementById('graph-container').innerHTML = '';
+      document.getElementById('graphLegend').style.display = 'none';
+    }
+
+    // ── 创建项目 ──────────────────────────────────────────
+    function showCreateModal() {
+      document.getElementById('createModal').classList.remove('hidden');
+      document.getElementById('newProjectName').value = '';
+      document.getElementById('newProjectDesc').value = '';
+      document.getElementById('newProjectName').focus();
+    }
+
+    async function createProject() {
+      const name = document.getElementById('newProjectName').value.trim();
+      const desc = document.getElementById('newProjectDesc').value.trim();
+      if (!name) return alert('请输入项目名称');
+      try {
+        const result = await api('/projects', {
+          method: 'POST',
+          body: JSON.stringify({ name, description: desc }),
+        });
+        hideModal('createModal');
+        await loadProjects();
+        document.getElementById('projectSelect').value = result.id;
+        currentProjectId = result.id;
+        await loadProject(result.id);
+      } catch (err) {
+        alert(`创建失败: ${err.message}`);
+      }
+    }
+
+    // ── 文件树 ────────────────────────────────────────────
+    async function loadTree(pid) {
+      try {
+        treeData = await api(`/projects/${pid}/tree`);
+        renderTree(treeData);
+        const files = await api(`/projects/${pid}/files`);
+        const count = Array.isArray(files) ? files.length : 0;
+        document.getElementById('fileCount').textContent = `${count} 文件`;
+      } catch (err) {
+        console.error('loadTree error:', err);
+        document.getElementById('treeContainer').innerHTML = `<div class="empty-state" style="padding:40px 16px;"><p>加载失败: ${err.message}</p></div>`;
+        document.getElementById('fileCount').textContent = '0 文件';
+      }
+    }
+
+    function getFileType(path) {
+      if (path.startsWith('raw/')) return 'raw';
+      if (path.startsWith('wiki/sources/')) return 'source';
+      if (path.startsWith('wiki/concepts/')) return 'concept';
+      if (path.startsWith('wiki/entities/')) return 'entity';
+      if (path.startsWith('wiki/')) return 'wiki';
+      if (path.startsWith('graph/')) return 'graph';
+      return 'other';
+    }
+
+    function getFileIcon(type) {
+      const icons = {
+        raw: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+        wiki: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+        graph: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83"/></svg>`,
+        concept: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        entity: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+        source: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
+        folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+      };
+      return icons[type] || icons.raw;
+    }
+
+    function renderTree(tree) {
+      const container = document.getElementById('treeContainer');
+      container.innerHTML = '';
+      const root = buildTreeHTML(tree, '', true);
+      container.appendChild(root);
+    }
+
+    function buildTreeHTML(node, path, isRoot = false) {
+      const frag = document.createDocumentFragment();
+      const entries = Object.entries(node).sort((a, b) => {
+        const aIsDir = typeof a[1] === 'object';
+        const bIsDir = typeof b[1] === 'object';
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+        return a[0].localeCompare(b[0]);
+      });
+
+      for (const [name, value] of entries) {
+        const fullPath = path ? `${path}/${name}` : name;
+        const isDir = typeof value === 'object';
+        const type = isDir ? 'folder' : getFileType(fullPath);
+
+        const div = document.createElement('div');
+        div.className = 'tree-node';
+
+        const label = document.createElement('div');
+        label.className = 'tree-label';
+        label.dataset.path = fullPath;
+
+        const arrow = document.createElement('span');
+        arrow.className = `arrow ${isDir ? '' : 'hidden'}`;
+        arrow.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>`;
+        label.appendChild(arrow);
+
+        const icon = document.createElement('span');
+        icon.className = `icon type-${type}`;
+        icon.innerHTML = getFileIcon(type);
+        label.appendChild(icon);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = name;
+        label.appendChild(nameSpan);
+
+        if (isDir) {
+          label.addEventListener('click', () => {
+            const children = div.querySelector('.tree-children');
+            if (children) {
+              children.classList.toggle('collapsed');
+              arrow.classList.toggle('open');
+            }
+          });
+          label.querySelector('.arrow')?.classList.add('open');
+        } else {
+          label.addEventListener('click', () => {
+            document.querySelectorAll('.tree-label.active').forEach(el => el.classList.remove('active'));
+            label.classList.add('active');
+            openFile(fullPath);
+          });
+        }
+
+        div.appendChild(label);
+
+        if (isDir) {
+          const childrenDiv = document.createElement('div');
+          childrenDiv.className = 'tree-children';
+          childrenDiv.appendChild(buildTreeHTML(value, fullPath));
+          div.appendChild(childrenDiv);
+        }
+
+        frag.appendChild(div);
+      }
+
+      return frag;
+    }
+
+    function filterTree(query) {
+      const labels = document.querySelectorAll('.tree-label');
+      const q = query.toLowerCase();
+      labels.forEach(label => {
+        const text = label.querySelector('span:last-child')?.textContent.toLowerCase() || '';
+        const node = label.closest('.tree-node');
+        if (q === '' || text.includes(q)) {
+          node.style.display = '';
+          // Expand parents
+          let parent = node.parentElement;
+          while (parent && parent !== document.getElementById('treeContainer')) {
+            if (parent.classList.contains('tree-children')) {
+              parent.classList.remove('collapsed');
+              const arrow = parent.previousElementSibling?.querySelector('.arrow');
+              if (arrow) arrow.classList.add('open');
+            }
+            parent = parent.parentElement;
+          }
+        } else {
+          node.style.display = 'none';
+        }
+      });
+    }
+
+    // ── 打开文件 ──────────────────────────────────────────
+    async function openFile(relPath) {
+      currentFilePath = relPath;
+      try {
+        setStatus(`加载: ${relPath}`);
+        const content = await apiText(`/projects/${currentProjectId}/files/${encodeURIComponent(relPath)}`);
+        showFileView(relPath, content);
+        setStatus(`已打开: ${relPath}`);
+      } catch (err) {
+        setStatus(`加载失败: ${err.message}`);
+      }
+    }
+
+    function showFileView(path, content) {
+      currentView = 'file';
+      document.getElementById('graphView').style.display = 'none';
+      document.getElementById('fileView').style.display = '';
+      document.getElementById('contentTitle').textContent = path.split('/').pop();
+      document.getElementById('contentBadge').textContent = path;
+      document.getElementById('btnToggleView').textContent = '图谱视图';
+
+      const container = document.getElementById('fileContent');
+      const ext = path.split('.').pop().toLowerCase();
+
+      if (ext === 'json') {
+        container.innerHTML = renderJson(content, path);
+      } else if (ext === 'html' || ext === 'htm') {
+        container.innerHTML = renderHtml(content, path);
+      } else if (ext === 'md' || ext === 'markdown') {
+        container.innerHTML = renderMarkdown(content);
+      } else {
+        container.innerHTML = renderText(content, ext);
+      }
+    }
+
+    function showGraphView() {
+      currentView = 'graph';
+      document.getElementById('graphView').style.display = '';
+      document.getElementById('fileView').style.display = 'none';
+      document.getElementById('contentTitle').textContent = '知识图谱';
+      document.getElementById('contentBadge').textContent = '';
+      document.getElementById('btnToggleView').textContent = '文件视图';
+      document.querySelectorAll('.tree-label.active').forEach(el => el.classList.remove('active'));
+    }
+
+    function closeDetailPanel() {
+      document.getElementById('detailPanel').style.display = 'none';
+    }
+
+    // ── 详情面板拖拽调整宽度 ──────────────────────────────
+    (function initDetailResize() {
+      const handle = document.getElementById('detailResizeHandle');
+      const panel = document.getElementById('detailPanel');
+      if (!handle || !panel) return;
+      let startX, startW;
+
+      function onMouseDown(e) {
+        startX = e.clientX;
+        startW = panel.offsetWidth;
+        handle.classList.add('active');
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      }
+
+      function onMouseMove(e) {
+        const dx = startX - e.clientX;
+        const newW = Math.min(Math.max(startW + dx, 280), window.innerWidth * 0.7);
+        panel.style.width = newW + 'px';
+      }
+
+      function onMouseUp() {
+        handle.classList.remove('active');
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+
+      handle.addEventListener('mousedown', onMouseDown);
+    })();
+
+    function toggleView() {
+      if (currentView === 'graph') {
+        if (currentFilePath) {
+          openFile(currentFilePath);
+        }
+      } else {
+        showGraphView();
+      }
+    }
+
+    // ── 简易 Markdown 渲染 ────────────────────────────────
+    function renderMarkdown(text) {
+      let html = text;
+      // Code blocks
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+      // Headers
+      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      // Bold & Italic
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      // Inline code
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Wikilinks [[Page|Display]] or [[Page]]
+      html = html.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '<a href="#" onclick="openWikiLink(\'$1\');return false;">$2</a>');
+      html = html.replace(/\[\[([^\]]+)\]\]/g, '<a href="#" onclick="openWikiLink(\'$1\');return false;">$1</a>');
+      // Links
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="#" onclick="openWikiLink(\'$2\');return false;">$1</a>');
+      // Blockquotes
+      html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+      // Tables
+      html = html.replace(/^\|(.+)\|$/gm, (match) => {
+        const cells = match.split('|').filter(c => c.trim());
+        if (cells.every(c => /^[\s\-:]+$/.test(c))) return '<!--table-sep-->';
+        const tag = 'td';
+        const row = cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('');
+        return `<tr>${row}</tr>`;
+      });
+      html = html.replace(/((?:<tr>.*<\/tr>\n?)+)/g, (match) => {
+        let table = match.replace('<!--table-sep-->\n', '').replace('<!--table-sep-->', '');
+        // Make first row header
+        table = table.replace(/<tr>(.*?)<\/tr>/, (m, inner) => `<thead><tr>${inner.replace(/<td>/g, '<th>').replace(/<\/td>/g, '</th>')}</tr></thead><tbody>`);
+        table += '</tbody>';
+        return `<table>${table}</table>`;
+      });
+      // Unordered lists
+      html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+      html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+      // Horizontal rule
+      html = html.replace(/^---$/gm, '<hr>');
+      // Paragraphs
+      html = html.replace(/\n\n/g, '</p><p>');
+      html = '<p>' + html + '</p>';
+      // Clean up
+      html = html.replace(/<p><(h[1-3]|ul|ol|pre|blockquote|table|hr)/g, '<$1');
+      html = html.replace(/<\/(h[1-3]|ul|ol|pre|blockquote|table)><\/p>/g, '</$1>');
+      html = html.replace(/<p><\/p>/g, '');
+      html = html.replace(/<p><hr><\/p>/g, '<hr>');
+      return html;
+    }
+
+    // ── JSON 树状渲染（支持展开/折叠） ─────────────────────
+    function renderJson(content, path) {
+      try {
+        const obj = JSON.parse(content);
+        return `
+          <div class="json-viewer">
+            <div class="json-toolbar">
+              <button class="btn btn-sm btn-outline" onclick="toggleAllJson()">全部展开/折叠</button>
+              <button class="btn btn-sm btn-outline" onclick="copyJson('${escapeHtml(content)}')">复制原始</button>
+            </div>
+            <div class="json-tree">
+              ${renderJsonNode(obj, '', true)}
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        return `
+          <div class="json-viewer">
+            <div class="error">JSON 解析失败: ${escapeHtml(e.message)}</div>
+            <pre><code>${escapeHtml(content)}</code></pre>
+          </div>
+        `;
+      }
+    }
+
+    function renderJsonNode(value, path, isRoot = false) {
+      const type = getType(value);
+      const id = 'json-' + Math.random().toString(36).substr(2, 9);
+      
+      if (type === 'object' || type === 'array') {
+        const isArray = type === 'array';
+        const keys = isArray ? Object.keys(value) : Object.keys(value);
+        const count = keys.length;
+        const openBracket = isArray ? '[' : '{';
+        const closeBracket = isArray ? ']' : '}';
+        
+        let html = `
+          <div class="json-node">
+            <div class="json-toggle" onclick="toggleJsonNode('${id}')">
+              <span class="json-arrow" id="${id}-arrow">▶</span>
+              <span class="json-type">${isArray ? 'Array' : 'Object'}</span>
+              <span class="json-count">(${count} ${count === 1 ? 'item' : 'items'})</span>
+            </div>
+            <div class="json-children" id="${id}">
+              <span class="json-bracket">${openBracket}</span>
+        `;
+        
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          const childValue = isArray ? value[key] : value[key];
+          const childPath = path ? `${path}.${key}` : key;
+          
+          html += `
+            <div class="json-item">
+              <span class="json-key">${escapeHtml(isArray ? i : key)}:</span>
+              ${renderJsonNode(childValue, childPath)}
+              ${i < count - 1 ? '<span class="json-comma">,</span>' : ''}
+            </div>
+          `;
+        }
+        
+        html += `
+              <span class="json-bracket">${closeBracket}</span>
+            </div>
+          </div>
+        `;
+        return html;
+      } else {
+        return `<span class="json-value json-${type}">${escapeHtml(String(value))}</span>`;
+      }
+    }
+
+    function getType(value) {
+      if (value === null) return 'null';
+      if (Array.isArray(value)) return 'array';
+      return typeof value;
+    }
+
+    function toggleJsonNode(id) {
+      const children = document.getElementById(id);
+      const arrow = document.getElementById(id + '-arrow');
+      if (children.style.display === 'none') {
+        children.style.display = '';
+        arrow.textContent = '▶';
+      } else {
+        children.style.display = 'none';
+        arrow.textContent = '▼';
+      }
+    }
+
+    function toggleAllJson() {
+      const arrows = document.querySelectorAll('.json-arrow');
+      arrows.forEach(arrow => {
+        const id = arrow.id.replace('-arrow', '');
+        const children = document.getElementById(id);
+        if (children) {
+          if (children.style.display === 'none') {
+            children.style.display = '';
+            arrow.textContent = '▶';
+          } else {
+            children.style.display = 'none';
+            arrow.textContent = '▼';
+          }
+        }
+      });
+    }
+
+    function copyJson(content) {
+      navigator.clipboard.writeText(unescapeHtml(content));
+      setStatus('JSON 已复制到剪贴板');
+    }
+
+    // ── HTML 渲染 ─────────────────────────────────────────
+    function renderHtml(content, path) {
+      return `
+        <div class="html-viewer">
+          <div class="html-toolbar">
+            <button class="btn btn-sm btn-outline" onclick="toggleHtmlView('preview')">预览</button>
+            <button class="btn btn-sm btn-outline" onclick="toggleHtmlView('source')">源码</button>
+          </div>
+          <div class="html-preview" id="html-preview">
+            <iframe srcdoc="${escapeHtmlAttr(content)}" sandbox="allow-scripts" class="html-iframe"></iframe>
+          </div>
+          <div class="html-source" id="html-source" style="display:none">
+            <pre><code>${escapeHtml(content)}</code></pre>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleHtmlView(view) {
+      const preview = document.getElementById('html-preview');
+      const source = document.getElementById('html-source');
+      if (view === 'preview') {
+        preview.style.display = '';
+        source.style.display = 'none';
+      } else {
+        preview.style.display = 'none';
+        source.style.display = '';
+      }
+    }
+
+    // ── 普通文本渲染 ─────────────────────────────────────
+    function renderText(content, ext) {
+      return `
+        <div class="text-viewer">
+          <div class="text-toolbar">
+            <span class="file-type-badge">.${ext}</span>
+            <button class="btn btn-sm btn-outline" onclick="copyText()">复制</button>
+          </div>
+          <pre><code>${escapeHtml(content)}</code></pre>
+        </div>
+      `;
+    }
+
+    function copyText() {
+      const code = document.querySelector('.text-viewer code');
+      if (code) {
+        navigator.clipboard.writeText(code.textContent);
+        setStatus('内容已复制到剪贴板');
+      }
+    }
+
+    // ── 辅助函数 ─────────────────────────────────────────
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escapeHtmlAttr(str) {
+      return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function unescapeHtml(str) {
+      const div = document.createElement('div');
+      div.innerHTML = str;
+      return div.textContent;
+    }
+
+    function openWikiLink(target) {
+      // Try to find the file in the tree
+      const searchPath = target.toLowerCase();
+      const allLabels = document.querySelectorAll('.tree-label');
+      for (const label of allLabels) {
+        const path = label.dataset.path?.toLowerCase() || '';
+        if (path.includes(searchPath) || path.replace(/\.md$/i, '').includes(searchPath)) {
+          label.click();
+          return;
+        }
+      }
+      setStatus(`未找到链接目标: ${target}`);
+    }
+
+    // ── 知识图谱 ──────────────────────────────────────────
+    async function loadGraphFiles(pid) {
+      try {
+        graphFilesList = await api(`/projects/${pid}/graph/files`);
+        const select = document.getElementById('graphFileSelect');
+        const selector = document.getElementById('graphFileSelector');
+        
+        if (!graphFilesList || graphFilesList.length === 0) {
+          selector.style.display = 'none';
+          return;
+        }
+
+        selector.style.display = 'flex';
+        select.innerHTML = '';
+        
+        graphFilesList.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f.relative_path;
+          opt.textContent = f.file_name;
+          select.appendChild(opt);
+        });
+
+        if (currentGraphFile && graphFilesList.some(f => f.relative_path === currentGraphFile)) {
+          select.value = currentGraphFile;
+        } else if (graphFilesList.length > 0) {
+          currentGraphFile = graphFilesList[0].relative_path;
+          select.value = currentGraphFile;
+        }
+      } catch (err) {
+        console.error('loadGraphFiles error:', err);
+        document.getElementById('graphFileSelector').style.display = 'none';
+      }
+    }
+
+    async function onGraphFileChange(filePath) {
+      currentGraphFile = filePath;
+      if (currentProjectId) {
+        await loadGraph(currentProjectId);
+      }
+    }
+
+    async function loadGraph(pid) {
+      try {
+        const graphData = await api(`/projects/${pid}/graph?file=${encodeURIComponent(currentGraphFile)}`);
+        renderGraph(graphData);
+        document.getElementById('graphLegend').style.display = 'flex';
+        document.getElementById('confidenceControl').style.display = 'flex';
+      } catch (err) {
+        const container = document.getElementById('graph-container');
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4"/>
+            </svg>
+            <p>暂无图谱数据</p>
+            <button class="btn btn-sm" onclick="buildGraph()">构建图谱</button>
+          </div>
+        `;
+        document.getElementById('graphLegend').style.display = 'none';
+        document.getElementById('confidenceControl').style.display = 'none';
+      }
+    }
+
+    function renderGraph(data) {
+      const container = document.getElementById('graph-container');
+      container.innerHTML = '';
+
+      const nodes = new vis.DataSet();
+      const edges = new vis.DataSet();
+
+      function mapNodeSize(value) {
+        const v = Math.max(value || 1, 1);
+        return Math.min(40, 12 + Math.log2(v) * 6);
+      }
+
+      const nodeTypeConfig = {
+        concept:   { bg: '#FFD648', border: '#D4B030', glow: 'rgba(255,214,72,0.35)',  shape: 'dot',  borderWidth: 2.5, shadowSize: 30, shadowAlpha: 0.7 },
+        entity:    { bg: '#3EB8FF', border: '#2A8FCC', glow: 'rgba(62,184,255,0.30)',  shape: 'dot',  borderWidth: 2,    shadowSize: 28, shadowAlpha: 0.6 },
+        source:    { bg: '#86E8B8', border: '#5CB892', glow: 'rgba(134,232,184,0.15)', shape: 'dot',  borderWidth: 1.5,  shadowSize: 24, shadowAlpha: 0.45 },
+        synthesis: { bg: '#E96FC2', border: '#C04D9E', glow: 'rgba(233,111,194,0.30)', shape: 'box',  borderWidth: 2,    shadowSize: 26, shadowAlpha: 0.55 },
+        default:   { bg: '#6B7280', border: '#4B5563', glow: 'rgba(107,114,128,0.2)',  shape: 'dot',  borderWidth: 1.5,  shadowSize: 20, shadowAlpha: 0.3 },
+      };
+
+      const nodeTypeMap = {};
+      window._nodeTypeMap = nodeTypeMap;
+
+      if (data.nodes) {
+        data.nodes.forEach(n => {
+          const type = n.type || 'default';
+          const cfg = nodeTypeConfig[type] || nodeTypeConfig.default;
+          nodeTypeMap[n.id] = type;
+          const opts = {
+            id: n.id,
+            label: n.label || n.id,
+            color: {
+              background: cfg.bg,
+              border: cfg.border,
+              highlight: { background: cfg.bg, border: '#fff' },
+              hover: { background: cfg.bg, border: '#fff' },
+            },
+            font: { color: '#fff', size: 12, strokeWidth: 2, strokeColor: 'rgba(4,7,25,0.6)' },
+            shape: cfg.shape,
+            size: mapNodeSize(n.value),
+            borderWidth: cfg.borderWidth,
+            borderWidthSelected: 3.5,
+            title: `${n.label || n.id}\n类型: ${type} · 连接数: ${n.value || 1}`,
+            shadow: {
+              enabled: true,
+              color: cfg.bg + Math.round(cfg.shadowAlpha * 255).toString(16).padStart(2, '0'),
+              size: cfg.shadowSize,
+              x: 0,
+              y: 0,
+            },
+          };
+          if (type === 'synthesis') {
+            opts.shapeProperties = { borderRadius: 8 };
+          }
+          nodes.add(opts);
+        });
+      }
+
+      function edgeColor(fromType, toType) {
+        if ((fromType === 'concept' && toType === 'entity') || (fromType === 'entity' && toType === 'concept'))
+          return { color: '#63C7FF', opacity: 0.35 };
+        if ((fromType === 'entity' && toType === 'source') || (fromType === 'source' && toType === 'entity'))
+          return { color: '#B6E3F7', opacity: 0.2 };
+        if ((fromType === 'concept' && toType === 'source') || (fromType === 'source' && toType === 'concept'))
+          return { color: '#A8D5BA', opacity: 0.2 };
+        if ((fromType === 'synthesis' && toType === 'concept') || (fromType === 'concept' && toType === 'synthesis'))
+          return { color: '#D98BC8', opacity: 0.3 };
+        if (fromType === 'synthesis' || toType === 'synthesis')
+          return { color: '#E96FC2', opacity: 0.2 };
+        return { color: '#63C7FF', opacity: 0.2 };
+      }
+      window._edgeColor = edgeColor;
+
+      window._rawGraphEdges = data.edges || [];
+      window._visEdges = edges;
+
+      applyEdgeFilter(parseFloat(document.getElementById('confidenceSlider').value));
+
+      network = new vis.Network(container, { nodes, edges }, {
+        physics: {
+          enabled: true,
+          solver: 'forceAtlas2Based',
+          minVelocity: 0.001,
+          maxVelocity: 2,
+          timestep: 0.4,
+          forceAtlas2Based: {
+            gravitationalConstant: -50,
+            centralGravity: 0.002,
+            springLength: 180,
+            springConstant: 0.03,
+            damping: 0.9,
+          },
+          stabilization: { enabled: false },
+        },
+        interaction: { hover: true, tooltipDelay: 80, zoomView: true, dragView: true, dragNodes: true },
+      });
+
+      window._graphData = data;
+
+      // ── Hover 放大 + 霓虹光晕增强 ─────────────────────
+      network.on('hoverNode', (params) => {
+        const nodeId = params.node;
+        const origSize = nodes.get(nodeId).size;
+        const nodeType = nodeTypeMap[nodeId] || 'default';
+        const cfg = nodeTypeConfig[nodeType] || nodeTypeConfig.default;
+        network._hoverOrigSize = network._hoverOrigSize || {};
+        network._hoverOrigSize[nodeId] = origSize;
+        nodes.update({
+          id: nodeId,
+          size: origSize * 1.15,
+          borderWidth: 4,
+          shadow: {
+            enabled: true,
+            color: cfg.bg + 'CC',
+            size: cfg.shadowSize + 20,
+            x: 0,
+            y: 0,
+          },
+        });
+        const el = document.getElementById('graph-container');
+        el.style.filter = `
+          drop-shadow(0 0 20px ${cfg.bg}66)
+          drop-shadow(0 0 60px ${cfg.bg}33)
+          drop-shadow(0 0 100px rgba(255,255,255,0.06))
+        `;
+      });
+
+      network.on('blurNode', (params) => {
+        const nodeId = params.node;
+        const nodeType = nodeTypeMap[nodeId] || 'default';
+        const cfg = nodeTypeConfig[nodeType] || nodeTypeConfig.default;
+        if (network._hoverOrigSize && network._hoverOrigSize[nodeId]) {
+          nodes.update({
+            id: nodeId,
+            size: network._hoverOrigSize[nodeId],
+            borderWidth: nodeTypeConfig[nodeTypeMap[nodeId] || 'default'].borderWidth,
+            shadow: {
+              enabled: true,
+              color: cfg.bg + Math.round(cfg.shadowAlpha * 255).toString(16).padStart(2, '0'),
+              size: cfg.shadowSize,
+              x: 0,
+              y: 0,
+            },
+          });
+          delete network._hoverOrigSize[nodeId];
+        }
+        const el = document.getElementById('graph-container');
+        el.style.filter = `
+          drop-shadow(0 0 12px rgba(255, 214, 72, 0.08))
+          drop-shadow(0 0 40px rgba(62, 184, 255, 0.04))
+          drop-shadow(0 0 80px rgba(134, 232, 184, 0.03))
+        `;
+      });
+
+      // ── 滚轮缩放 → 远处节点降低透明度 ────────────────
+      network.on('zoom', () => {
+        const scale = network.getScale();
+        const factor = Math.min(1, Math.max(0.2, 1 / (scale * 0.8)));
+        const ids = network.body.nodeIndices;
+        for (let i = 0; i < ids.length; i += 3) {
+          try {
+            const pos = network.getPosition(ids[i]);
+            const viewport = network.getViewPosition();
+            const dist = Math.hypot(pos.x - viewport.x, pos.y - viewport.y);
+            const maxDist = 600;
+            const distFactor = Math.min(1, Math.max(0.15, 1 - dist / maxDist));
+            nodes.update({ id: ids[i], opacity: Math.min(1, distFactor * factor * 1.2) });
+          } catch (_) {}
+        }
+      });
+
+      // ── 微扰动 ─────────────────────────────────────────
+      let pauseTimeout = null;
+      network._nudgeActive = true;
+
+      if (window._nudgeTimer) clearInterval(window._nudgeTimer);
+      window._nudgeTimer = setInterval(() => {
+        if (!network || !network._nudgeActive) return;
+        const ids = network.body.nodeIndices;
+        if (!ids || ids.length === 0) return;
+        for (let i = 0; i < ids.length; i += 5) {
+          try {
+            const pos = network.getPosition(ids[i]);
+            network.moveNode(ids[i],
+              pos.x + (Math.random() - 0.5) * 1.2,
+              pos.y + (Math.random() - 0.5) * 1.2
+            );
+          } catch (_) {}
+        }
+      }, 2500);
+
+      network.on('click', (params) => {
+        network._nudgeActive = false;
+        network.setOptions({ physics: { enabled: false } });
+        setStatus('图谱已暂停，10秒后恢复运动');
+
+        if (pauseTimeout) clearTimeout(pauseTimeout);
+        pauseTimeout = setTimeout(() => {
+          if (!network) return;
+          network._nudgeActive = true;
+          network.setOptions({ physics: { enabled: true } });
+          setStatus('图谱已恢复运动');
+        }, 10000);
+
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const node = data.nodes.find(n => n.id === nodeId);
+          if (node) {
+            showNodeDetail(node);
+          }
+        }
+      });
+    }
+
+    function showNodeDetail(node) {
+      const panel = document.getElementById('detailPanel');
+      const body = document.getElementById('detailBody');
+      panel.style.display = 'block';
+
+      let html = '';
+
+      const typeColors = {
+        source: '#86E8B8',
+        entity: '#3EB8FF',
+        concept: '#FFD648',
+        synthesis: '#E96FC2',
+      };
+      const badgeBg = typeColors[node.type] || '#6B7280';
+
+      html += `<div class="detail-field">
+        <div class="detail-field-label">Label</div>
+        <div class="detail-field-value" style="font-size:16px;font-weight:600;color:var(--accent);">${escapeHtml(node.label || node.id)}</div>
+      </div>`;
+
+      html += `<div class="detail-field">
+        <div class="detail-field-label">Type</div>
+        <div class="detail-field-value"><span class="type-badge" style="background:${badgeBg};color:#fff;">${escapeHtml(node.type || 'default')}</span></div>
+      </div>`;
+
+      if (node.path) {
+        html += `<div class="detail-field">
+          <div class="detail-field-label">Path</div>
+          <div class="detail-path">${escapeHtml(node.path)}</div>
+        </div>`;
+      }
+
+      if (node.preview) {
+        html += `<div class="detail-field">
+          <div class="detail-field-label">Preview</div>
+          <div class="detail-preview-box">${renderMarkdown(node.preview)}</div>
+        </div>`;
+      }
+
+      if (node.markdown) {
+        const mdId = 'md-' + Math.random().toString(36).substr(2, 9);
+        html += `<div class="detail-field">
+          <div class="detail-field-label">Markdown</div>
+          <div class="detail-markdown-toggle" onclick="toggleDetailMarkdown('${mdId}')">
+            <span>查看完整内容</span>
+            <span class="arrow">▾</span>
+          </div>
+          <div class="detail-markdown-content" id="${mdId}">${renderMarkdown(node.markdown)}</div>
+        </div>`;
+      }
+
+      if (node.group !== undefined) {
+        html += `<div class="detail-field">
+          <div class="detail-field-label">Group</div>
+          <div class="detail-field-value">${escapeHtml(String(node.group))}</div>
+        </div>`;
+      }
+
+      if (node.value !== undefined) {
+        html += `<div class="detail-field">
+          <div class="detail-field-label">Value</div>
+          <div class="detail-field-value">${escapeHtml(String(node.value))}</div>
+        </div>`;
+      }
+
+      body.innerHTML = html;
+    }
+
+    function toggleDetailMarkdown(id) {
+      const el = document.getElementById(id);
+      const toggle = el.previousElementSibling;
+      if (!el || !toggle) return;
+      el.classList.toggle('open');
+      const arrow = toggle.querySelector('.arrow');
+      if (arrow) arrow.classList.toggle('open');
+    }
+
+    function onConfidenceChange(value) {
+      document.getElementById('confidenceValue').textContent = value;
+      applyEdgeFilter(parseFloat(value));
+    }
+
+    function applyEdgeFilter(threshold) {
+      const rawEdges = window._rawGraphEdges || [];
+      const visEdges = window._visEdges;
+      const ntm = window._nodeTypeMap || {};
+      const ecFn = window._edgeColor || function(){ return { color: '#63C7FF', opacity: 0.2 }; };
+      if (!visEdges) return;
+      visEdges.clear();
+      rawEdges.forEach(e => {
+        const conf = e.confidence !== undefined ? e.confidence : 1;
+        if (conf < 0.3) return;
+        if (conf >= threshold) {
+          const ft = ntm[e.from] || 'default';
+          const tt = ntm[e.to] || 'default';
+          const ec = ecFn(ft, tt);
+          visEdges.add({
+            from: e.from,
+            to: e.to,
+            label: '',
+            color: { color: ec.color + Math.round(ec.opacity * 255).toString(16).padStart(2, '0'), highlight: ec.color + '66' },
+            font: { color: 'rgba(255,255,255,0.3)', size: 9, align: 'top' },
+            smooth: { type: 'continuous', roundness: 0.15 },
+            width: 0.6 + conf * 0.6,
+          });
+        }
+      });
+    }
+
+    // ── 工作流操作 ────────────────────────────────────────
+    async function buildKnowledgeBase() {
+      if (!currentProjectId) return alert('请先选择项目');
+      if (!confirm('确定要构建知识库吗？这可能需要较长时间。')) return;
+      setStatus('正在构建知识库...');
+      try {
+        const result = await api(`/projects/${currentProjectId}/build`, { method: 'POST' });
+        setStatus(`构建完成: 摄入 ${result.ingested} 个文件`);
+        await loadProject(currentProjectId);
+      } catch (err) {
+        setStatus(`构建失败: ${err.message}`);
+        alert(`构建失败: ${err.message}`);
+      }
+    }
+
+    async function buildGraph() {
+      if (!currentProjectId) return alert('请先选择项目');
+      setStatus('正在构建图谱...');
+      try {
+        const result = await api(`/projects/${currentProjectId}/graph/build`, { method: 'POST' });
+        setStatus(`图谱构建完成: ${result.n_nodes} 节点, ${result.n_edges} 边`);
+        await loadGraph(currentProjectId);
+      } catch (err) {
+        setStatus(`图谱构建失败: ${err.message}`);
+      }
+    }
+
+    async function lintProject() {
+      if (!currentProjectId) return alert('请先选择项目');
+      if (!confirm('确定要进行质量检查吗？这可能需要一定时间。')) return;
+      setStatus('正在进行质量检查...');
+      try {
+        const result = await api(`/projects/${currentProjectId}/lint`, { method: 'POST' });
+        hideModal('lintModal');
+        document.getElementById('lintResult').innerHTML = renderMarkdown(result.report);
+        document.getElementById('lintModal').classList.remove('hidden');
+        setStatus('质量检查完成');
+      } catch (err) {
+        setStatus(`质量检查失败: ${err.message}`);
+        alert(`质量检查失败: ${err.message}`);
+      }
+    }
+
+    function showQueryModal() {
+      if (!currentProjectId) return alert('请先选择项目');
+      document.getElementById('queryModal').classList.remove('hidden');
+      document.getElementById('queryInput').value = '';
+      document.getElementById('queryResult').textContent = '';
+      document.getElementById('queryInput').focus();
+    }
+
+    async function runQuery() {
+      const question = document.getElementById('queryInput').value.trim();
+      if (!question) return;
+      document.getElementById('queryResult').textContent = '查询中...';
+      try {
+        const result = await api(`/projects/${currentProjectId}/query`, {
+          method: 'POST',
+          body: JSON.stringify({ question }),
+        });
+        document.getElementById('queryResult').textContent = result.answer;
+      } catch (err) {
+        document.getElementById('queryResult').textContent = `查询失败: ${err.message}`;
+      }
+    }
+
+    function importFiles() {
+      if (!currentProjectId) return alert('请先选择项目');
+      document.getElementById('importModal').classList.remove('hidden');
+      document.getElementById('importDir').value = '';
+      document.getElementById('importDir').focus();
+    }
+
+    async function doImport() {
+      const dir = document.getElementById('importDir').value.trim();
+      if (!dir) return alert('请输入目录路径');
+      try {
+        const result = await api(`/projects/${currentProjectId}/import`, {
+          method: 'POST',
+          body: JSON.stringify({ source_dir: dir }),
+        });
+        hideModal('importModal');
+        setStatus(`导入完成: ${result.imported} 个文件`);
+        await loadProject(currentProjectId);
+      } catch (err) {
+        alert(`导入失败: ${err.message}`);
+      }
+    }
+
+    function hideModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    // ── 删除项目 ──────────────────────────────────────────
+    function showDeleteModal() {
+      if (!currentProjectId) return alert('请先选择项目');
+      const select = document.getElementById('projectSelect');
+      const name = select.options[select.selectedIndex]?.textContent || '—';
+      document.getElementById('deleteProjectName').textContent = name;
+      document.getElementById('deleteModal').classList.remove('hidden');
+    }
+
+    async function deleteProject() {
+      if (!currentProjectId) return;
+      try {
+        await api(`/projects/${currentProjectId}`, { method: 'DELETE' });
+        hideModal('deleteModal');
+        currentProjectId = null;
+        document.getElementById('projectSelect').value = '';
+        resetView();
+        await loadProjects();
+        setStatus('项目已删除');
+      } catch (err) {
+        alert(`删除失败: ${err.message}`);
+      }
+    }
+
+    // ── 星空背景 ─────────────────────────────────────────
+    function createStarfield() {
+      const container = document.getElementById('starfield');
+      if (!container) return;
+      const w = container.offsetWidth || window.innerWidth;
+      const h = container.offsetHeight || window.innerHeight;
+      const count = Math.floor((w * h) / 8000);
+      for (let i = 0; i < count; i++) {
+        const star = document.createElement('div');
+        star.className = 'star';
+        const size = 0.5 + Math.random() * 1.5;
+        star.style.width = size + 'px';
+        star.style.height = size + 'px';
+        star.style.left = Math.random() * 100 + '%';
+        star.style.top = Math.random() * 100 + '%';
+        const alpha = 0.15 + Math.random() * 0.6;
+        star.style.opacity = alpha;
+        star.style.boxShadow = size > 1.2 ? `0 0 ${size * 2}px rgba(255,255,255,${alpha * 0.3})` : 'none';
+        container.appendChild(star);
+      }
+    }
+
+    // ── 初始化 ────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      loadProjects();
+      createStarfield();
+    });
+
+    // 回车键触发查询
+    document.getElementById('queryInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') runQuery();
+    });
+
+    // ── 聊天面板 ──────────────────────────────────────────
+    let chatOpen = false;
+
+    function toggleChat() {
+      if (!currentProjectId) {
+        alert('请先选择项目');
+        return;
+      }
+      chatOpen = !chatOpen;
+      const panel = document.getElementById('chatPanel');
+      if (chatOpen) {
+        panel.classList.remove('hidden');
+        document.getElementById('chatInput').focus();
+      } else {
+        panel.classList.add('hidden');
+      }
+    }
+
+    function addChatMessage(role, text) {
+      const welcome = document.getElementById('chatWelcome');
+      if (welcome) welcome.style.display = 'none';
+
+      const container = document.getElementById('chatMessages');
+      const msg = document.createElement('div');
+      msg.className = `chat-message ${role}`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'chat-avatar';
+      avatar.textContent = role === 'user' ? 'U' : 'AI';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+
+      if (role === 'assistant') {
+        bubble.innerHTML = renderMarkdown(text);
+      } else {
+        bubble.textContent = text;
+      }
+
+      msg.appendChild(avatar);
+      msg.appendChild(bubble);
+      container.appendChild(msg);
+      container.scrollTop = container.scrollHeight;
+      return bubble;
+    }
+
+    function addTypingIndicator() {
+      const container = document.getElementById('chatMessages');
+      const msg = document.createElement('div');
+      msg.className = 'chat-message assistant chat-typing';
+      msg.id = 'chatTyping';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'chat-avatar';
+      avatar.textContent = 'AI';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      bubble.textContent = '正在查询知识库...';
+
+      msg.appendChild(avatar);
+      msg.appendChild(bubble);
+      container.appendChild(msg);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+      const typing = document.getElementById('chatTyping');
+      if (typing) typing.remove();
+    }
+
+    async function sendChatMessage() {
+      const input = document.getElementById('chatInput');
+      const question = input.value.trim();
+      if (!question) return;
+      if (!currentProjectId) {
+        alert('请先选择项目');
+        return;
+      }
+
+      input.value = '';
+      input.style.height = 'auto';
+      addChatMessage('user', question);
+
+      const sendBtn = document.getElementById('chatSendBtn');
+      sendBtn.disabled = true;
+      addTypingIndicator();
+
+      try {
+        const result = await api(`/projects/${currentProjectId}/query`, {
+          method: 'POST',
+          body: JSON.stringify({ question }),
+        });
+        removeTypingIndicator();
+        addChatMessage('assistant', result.answer);
+      } catch (err) {
+        removeTypingIndicator();
+        addChatMessage('assistant', `查询失败: ${err.message}`);
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    function onChatKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    }
+
+    // 自动调整 textarea 高度
+    document.getElementById('chatInput')?.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+  </script>
+</body>
+</html>
