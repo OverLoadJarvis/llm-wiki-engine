@@ -13,14 +13,15 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-REPO_ROOT = Path(__file__).parent
+REPO_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = REPO_ROOT.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from storage.db import WikiStorage
 from wiki_engine import LLMWikiEngine
 from wiki_engine.constants import DEFAULT_UPLOAD_DIR
 
-app = Flask(__name__, static_folder="web", static_url_path="")
+app = Flask(__name__, static_folder=str(PROJECT_ROOT / "web"), static_url_path="")
 CORS(app)
 
 DB_PATH = REPO_ROOT / "storage" / "wiki.db"
@@ -43,7 +44,7 @@ def index():
     GET /
     返回 web/index.html 静态页面。
     """
-    return send_from_directory("web", "index.html")
+    return send_from_directory(str(PROJECT_ROOT / "web"), "index.html")
 
 
 # ── 项目 API ──────────────────────────────────────────────────────────
@@ -248,9 +249,12 @@ def get_graph(project_id):
     try:
         graph_file = request.args.get("file", "graph/graph.json")
         graph_json = db.get_file_text_by_path(project_id, graph_file)
-        if graph_json is None:
+        if not graph_json:
             return jsonify({"error": "图谱数据不存在"}), 404
-        data = json.loads(graph_json)
+        try:
+            data = json.loads(graph_json)
+        except (json.JSONDecodeError, ValueError) as e:
+            return jsonify({"error": f"图谱文件内容不是合法的 JSON: {e}"}), 500
         return jsonify(data)
     finally:
         db.close()

@@ -5,8 +5,8 @@
 
 from pathlib import Path
 
-# 项目根目录
-REPO_ROOT = Path(__file__).parent.parent
+# 后端工程根目录 (server/)
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 格式规范文件路径
 SCHEMA_FILE = REPO_ROOT / "FORMATS.md"

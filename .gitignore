@@ -1,5 +1,6 @@
 # Environment variables
 .env
+server/.env
 
 # Virtual environment
 .venv/
@@ -22,6 +23,18 @@ Thumbs.db
 
 .codefree/
 .claude/
+.trae/
 
 # External file uploads
-uploads/
+server/uploads/
+
+# Database files
+server/storage/*.db
+server/*.db
+
+# Temp directories
+server/tmp/
+server/local/
+
+web/dist/
+web/node_modules/

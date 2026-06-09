@@ -17,7 +17,8 @@ Thumbs.db
 .claude/
 .trae/
 .playwright-cli/
-tmp/
-test/
-local/
-uploads/
+server/tmp/
+server/test/
+server/local/
+server/uploads/
+server/*.db
