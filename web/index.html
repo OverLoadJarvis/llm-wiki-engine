@@ -736,6 +736,44 @@
       color: var(--text-dim);
     }
 
+    .detail-related {
+      margin-bottom: 18px;
+      padding-top: 6px;
+    }
+    .detail-related-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .detail-related-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .detail-chip {
+      background: var(--panel-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      line-height: 1.4;
+    }
+    .detail-chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .detail-chip-empty {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
     /* ── 置信度滑块 ─────────────────────────────────────── */
     .confidence-control {
       display: flex;
@@ -1999,6 +2037,21 @@
 
       window._graphData = data;
 
+      // ── 构建邻接表 & 节点索引 (用于节点详情展示相关节点) ──
+      const adjMap = new Map();
+      const nodeIdx = new Map();
+      if (data.nodes) data.nodes.forEach(n => nodeIdx.set(n.id, n));
+      if (data.edges) {
+        data.edges.forEach(e => {
+          if (!adjMap.has(e.from)) adjMap.set(e.from, new Set());
+          if (!adjMap.has(e.to)) adjMap.set(e.to, new Set());
+          adjMap.get(e.from).add(e.to);
+          adjMap.get(e.to).add(e.from);
+        });
+      }
+      window._adjacencyMap = adjMap;
+      window._nodeIndex = nodeIdx;
+
       // ── Hover 放大 + 霓虹光晕增强 ─────────────────────
       network.on('hoverNode', (params) => {
         const nodeId = params.node;
@@ -2165,21 +2218,51 @@
         </div>`;
       }
 
-      if (node.group !== undefined) {
-        html += `<div class="detail-field">
-          <div class="detail-field-label">Group</div>
-          <div class="detail-field-value">${escapeHtml(String(node.group))}</div>
-        </div>`;
-      }
+      // ── Related Nodes ─────────────────────────────────
+      const adj = window._adjacencyMap;
+      const nIdx = window._nodeIndex;
+      const relatedIds = adj ? adj.get(node.id) : null;
+      let relatedHtml = `<div class="detail-related">
+        <div class="detail-related-label">相关节点 (${relatedIds ? relatedIds.size : 0})</div>
+        <div class="detail-related-list" id="detailRelatedList">`;
 
-      if (node.value !== undefined) {
-        html += `<div class="detail-field">
-          <div class="detail-field-label">Value</div>
-          <div class="detail-field-value">${escapeHtml(String(node.value))}</div>
-        </div>`;
+      if (relatedIds && relatedIds.size > 0) {
+        const relatedNodes = Array.from(relatedIds)
+          .map(id => nIdx ? nIdx.get(id) : null)
+          .filter(n => n && n.id !== node.id)
+          .sort((a, b) => (a.label || a.id).toString().localeCompare((b.label || b.id).toString()));
+
+        if (relatedNodes.length > 0) {
+          relatedNodes.forEach(rel => {
+            const chipBg = typeColors[rel.type] || '#6B7280';
+            relatedHtml += `<button class="detail-chip" data-node-id="${escapeHtml(String(rel.id))}" style="border-color:${chipBg}33;">
+              ${escapeHtml(rel.label || rel.id)}
+            </button>`;
+          });
+        } else {
+          relatedHtml += `<span class="detail-chip-empty">无直接连接节点</span>`;
+        }
+      } else {
+        relatedHtml += `<span class="detail-chip-empty">无直接连接节点</span>`;
       }
+      relatedHtml += `</div></div>`;
+
+      html += relatedHtml;
 
       body.innerHTML = html;
+
+      // Bind click events on related node chips
+      const chips = body.querySelectorAll('#detailRelatedList .detail-chip');
+      chips.forEach(chip => {
+        chip.addEventListener('click', () => {
+          const targetId = chip.getAttribute('data-node-id');
+          if (!targetId || !nIdx) return;
+          let nid;
+          try { nid = Number.isFinite(+targetId) ? +targetId : targetId; } catch(_) { nid = targetId; }
+          const target = nIdx.get(nid);
+          if (target) showNodeDetail(target);
+        });
+      });
     }
 
     function toggleDetailMarkdown(id) {
