@@ -8,6 +8,7 @@
       @create-project="showModal('create-project', 'Create project')"
       @delete-project="showModal('delete-project', 'Delete project')"
       @import-files="showModal('import-files', 'Import files')"
+      @export-project="exportProject"
       @build-knowledge-base="showModal('build-knowledge-base', 'Build knowledge base')"
       @build-graph="showModal('build-graph', 'Build graph')"
       @lint-project="runLint"
@@ -168,7 +169,7 @@ import ChatPanel from './components/ChatPanel.vue'
 import Modal from './components/Modal.vue'
 import ToastContainer from './components/ToastContainer.vue'
 import { I } from './utils/icons.js'
-import { api, apiText, formatNumber } from './utils/api.js'
+import { api, apiText, apiUpload, apiDownload, formatNumber } from './utils/api.js'
 
 const view = ref('graph')
 const confidence = ref(0.3)
@@ -357,6 +358,21 @@ async function runLint() {
   }
 }
 
+async function exportProject() {
+  if (!currentProjectId.value) return
+  showToast('info', 'Exporting project...')
+  try {
+    const name = currentProject.value?.name || 'project'
+    await apiDownload(
+      `/projects/${currentProjectId.value}/export`,
+      `${name}_export.zip`
+    )
+    showToast('success', 'Export complete.')
+  } catch (e) {
+    showToast('error', `Export failed: ${e.message}`)
+  }
+}
+
 async function handleModalConfirm(payload) {
   const t = modal.value.type
   modal.value.show = false
@@ -397,7 +413,25 @@ async function handleModalConfirm(payload) {
       await loadGraph()
       showToast('success', 'Graph built.')
     } else if (t === 'import-files') {
-      showToast('info', 'File integration handled via backend API.')
+      const { sourceDir, zipFile } = payload
+      if (zipFile) {
+        const formData = new FormData()
+        formData.append('file', zipFile)
+        const result = await apiUpload(`/projects/${currentProjectId.value}/import-zip`, formData)
+        showToast('success', `ZIP imported: ${result.imported || 0} files.`)
+        await loadProjectFiles()
+      } else if (sourceDir) {
+        showToast('info', 'Importing files from directory...')
+        await api(`/projects/${currentProjectId.value}/import`, {
+          method: 'POST',
+          body: JSON.stringify({ source_dir: sourceDir }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+        showToast('success', 'Files imported.')
+        await loadProjectFiles()
+      } else {
+        showToast('warn', 'Please provide a directory path or select a ZIP file.')
+      }
     }
   } catch (e) {
     showToast('error', e.message || 'Action failed')

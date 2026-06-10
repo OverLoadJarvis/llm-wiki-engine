@@ -470,6 +470,140 @@ def import_files(project_id):
         engine.close()
 
 
+@app.route("/api/projects/<int:project_id>/import-zip", methods=["POST"])
+def import_zip(project_id):
+    """上传 ZIP 压缩包并导入到项目。
+
+    POST /api/projects/<project_id>/import-zip
+
+    路径参数:
+        - project_id (int): 项目 ID
+
+    请求体 (multipart/form-data):
+        - file (file): ZIP 压缩包文件
+
+    行为:
+        1. 将 ZIP 文件保存到临时目录
+        2. 解压缩到 ``uploads/<project_name>/`` 目录
+        3. 将解压后的文件导入到 Wiki 引擎项目
+
+    响应:
+        200: {"imported": <成功数>, "skipped": <跳过数>, "errors": <错误数>}
+        400: {"error": "..."}
+        404: {"error": "项目不存在"}
+    """
+    import tempfile
+    import zipfile
+
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        return jsonify({"error": "未提供文件"}), 400
+
+    if not file.filename.lower().endswith(".zip"):
+        return jsonify({"error": "仅支持 .zip 格式的压缩包"}), 400
+
+    db = get_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return jsonify({"error": "项目不存在"}), 404
+
+        extract_dir = DEFAULT_UPLOAD_DIR / project["name"]
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        # 将上传的 ZIP 写入临时文件，再解压
+        import_result = {}
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = Path(tmp.name)
+
+        try:
+            with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                zf.extractall(str(extract_dir))
+
+            engine = get_engine()
+            try:
+                print(f"Importing files from {extract_dir}")
+                import_result = engine.import_raw_files(project_id, str(extract_dir))
+            finally:
+                engine.close()
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+        return jsonify(import_result)
+    finally:
+        db.close()
+
+
+@app.route("/api/projects/<int:project_id>/export", methods=["GET"])
+def export_project(project_id):
+    """导出项目为 ZIP 压缩包。
+
+    GET /api/projects/<project_id>/export
+
+    路径参数:
+        - project_id (int): 项目 ID
+
+    行为:
+        将项目中 raw/、wiki/、graph/ 三个目录下的所有文件打包为 ZIP 下载。
+
+    响应:
+        200: ZIP 文件流（Content-Type: application/zip）
+        404: {"error": "项目不存在"}
+    """
+    import io
+    import zipfile
+
+    db = get_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return jsonify({"error": "项目不存在"}), 404
+
+        # 收集所有需要导出的文件
+        prefixes = ("raw/", "wiki/", "graph/")
+        all_files = []
+        for prefix in prefixes:
+            files = db.list_files(project_id, prefix)
+            all_files.extend(files)
+
+        if not all_files:
+            return jsonify({"error": "项目没有可导出的文件"}), 404
+
+        # 在内存中构建 ZIP
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in all_files:
+                rel_path = f["relative_path"]
+                # 直接读取二进制内容，兼容文本和非文本文件
+                row = db.conn.execute(
+                    "SELECT content FROM files WHERE project_id = ? AND relative_path = ?",
+                    (project_id, rel_path),
+                ).fetchone()
+                content = row["content"] if row and row["content"] else b""
+                zf.writestr(rel_path, content)
+
+        buf.seek(0)
+        from urllib.parse import quote
+
+        project_name = project["name"]
+        safe_name = f"project_{project_id}_export.zip"
+        encoded_name = quote(project_name, safe="")
+        return Response(
+            buf,
+            mimetype="application/zip",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{safe_name}"; '
+                    f"filename*=UTF-8''{encoded_name}_export.zip"
+                ),
+            },
+        )
+    finally:
+        db.close()
+
+
 @app.route("/api/projects/<int:project_id>/upload-file", methods=["POST"])
 def upload_file_to_project(project_id):
     """外部系统向指定项目上传单个文件，并可选择增量更新知识库。

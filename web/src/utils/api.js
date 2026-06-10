@@ -13,11 +13,41 @@ export async function api(path, options = {}) {
   return res.json()
 }
 
+export async function apiUpload(path, formData) {
+  const url = `${API_BASE}/api${path}`
+  const res = await fetch(url, {
+    method: 'POST',
+    body: formData
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function apiText(path, options = {}) {
   const url = `${API_BASE}/api${path}`
   const res = await fetch(url, options)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.text()
+}
+
+export async function apiDownload(path, filename) {
+  const url = `${API_BASE}/api${path}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
 }
 
 export function escapeHtml(str) {

@@ -10,6 +10,7 @@
       @build-knowledge-base="buildKnowledgeBase"
       @build-graph="buildGraph"
       @lint-project="openModal('lint')"
+      @export-project="exportProject"
       @show-query="openModal('query')"
     />
 
@@ -93,6 +94,7 @@
       :create-api="createProjectApi"
       :delete-api="deleteProjectApi"
       :import-api="importFilesApi"
+      :import-zip-api="importZipApi"
       :lint-api="lintProjectApi"
       @close="activeModal = ''"
       @project-created="onProjectCreated"
@@ -112,7 +114,7 @@ import DetailPanel from './components/DetailPanel.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import ModalGroup from './components/ModalGroup.vue'
 import StatusBar from './components/StatusBar.vue'
-import { api, apiText } from './utils/api.js'
+import { api, apiText, apiUpload, apiDownload } from './utils/api.js'
 
 // State
 const projects = ref([])
@@ -279,6 +281,21 @@ async function buildGraph() {
   }
 }
 
+async function exportProject() {
+  if (!currentProjectId.value) return alert('请先选择项目')
+  statusText.value = '正在导出项目...'
+  try {
+    await apiDownload(
+      `/projects/${currentProjectId.value}/export`,
+      `${currentProjectName.value}_export.zip`
+    )
+    statusText.value = '导出完成'
+  } catch (err) {
+    statusText.value = `导出失败: ${err.message}`
+    alert(`导出失败: ${err.message}`)
+  }
+}
+
 function openModal(kind) {
   if ((kind === 'query' || kind === 'delete' || kind === 'import') && !currentProjectId.value) {
     alert('请先选择项目')
@@ -322,6 +339,12 @@ function importFilesApi(sourceDir) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source_dir: sourceDir })
   })
+}
+
+function importZipApi(zipFile) {
+  const formData = new FormData()
+  formData.append('file', zipFile)
+  return apiUpload(`/projects/${currentProjectId.value}/import-zip`, formData)
 }
 
 function lintProjectApi() {

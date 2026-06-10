@@ -49,7 +49,15 @@
     <div v-if="active === 'import'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal">
         <h3>导入文件</h3>
-        <input type="text" v-model="importDir" placeholder="本地目录路径" @keydown.enter="doImport" />
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;">本地目录路径</label>
+          <input type="text" v-model="importDir" placeholder="例如: D:\docs\my-project" @keydown.enter="doImport" />
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;">或上传 ZIP 压缩包</label>
+          <input type="file" ref="zipInput" accept=".zip" @change="onZipSelected" />
+          <span v-if="zipFileName" style="display:block;font-size:12px;color:var(--text-dim);margin-top:4px;">已选择: {{ zipFileName }}</span>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-outline" @click="$emit('close')">取消</button>
           <button class="btn" @click="doImport">导入</button>
@@ -85,6 +93,7 @@ const props = defineProps({
   createApi: { type: Function, default: null },
   deleteApi: { type: Function, default: null },
   importApi: { type: Function, default: null },
+  importZipApi: { type: Function, default: null },
   lintApi: { type: Function, default: null }
 })
 
@@ -102,6 +111,8 @@ const lintError = ref('')
 const lintLoading = ref(false)
 
 const importDir = ref('')
+const zipInput = ref(null)
+const zipFileName = ref('')
 
 const renderedLintResult = computed(() => lintResult.value ? renderMarkdown(lintResult.value) : '')
 
@@ -134,13 +145,29 @@ async function doQuery() {
   }
 }
 
+function onZipSelected(e) {
+  const file = e.target.files[0]
+  zipFileName.value = file ? file.name : ''
+}
+
 async function doImport() {
   const dir = importDir.value.trim()
-  if (!dir) return alert('请输入目录路径')
+  const zipFile = zipInput.value?.files[0]
+
+  if (!dir && !zipFile) return alert('请输入目录路径或选择 ZIP 文件')
+
   try {
-    const result = await props.importApi(dir)
+    let result
+    if (zipFile) {
+      if (!props.importZipApi) return alert('ZIP 上传功能未配置')
+      result = await props.importZipApi(zipFile)
+    } else {
+      result = await props.importApi(dir)
+    }
     emit('files-imported', result)
     importDir.value = ''
+    zipFileName.value = ''
+    if (zipInput.value) zipInput.value.value = ''
   } catch (err) {
     alert(`导入失败: ${err.message}`)
   }

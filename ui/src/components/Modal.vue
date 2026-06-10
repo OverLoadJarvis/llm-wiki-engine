@@ -53,13 +53,15 @@
           </div>
 
           <div v-else-if="type === 'import-files'">
-            <label class="form-label">Files to import</label>
-            <p style="color:var(--text-muted);font-size:12px;margin:6px 0 12px">
-              Backend will scan uploaded files; drag-and-drop integration available via API.
-            </p>
-            <div class="import-hint hud-brackets">
-              <span v-html="I.folder" style="width:14px;height:14px"></span>
-              <span>Supported: .txt, .md, .json, .html, .pdf (text)</span>
+            <label class="form-label">Import source</label>
+            <div style="margin-bottom:12px;">
+              <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">Local directory path</label>
+              <input type="text" v-model="importDir" class="form-input" placeholder="e.g. /home/docs/project" @keydown.enter="confirm" />
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">Or upload a ZIP archive</label>
+              <input type="file" ref="zipInput" accept=".zip" @change="onZipSelected" style="display:block;width:100%;font-size:13px;color:var(--text-primary);" />
+              <span v-if="zipFileName" style="display:block;font-size:11px;color:var(--text-muted);margin-top:4px;">Selected: {{ zipFileName }}</span>
             </div>
           </div>
 
@@ -108,6 +110,9 @@ const emit = defineEmits(['close', 'confirm'])
 const name = ref('')
 const kbOptions = ref({ rebuild: false, incremental: true })
 const graphOptions = ref({ rebuild: false, includeEntities: true, includeConcepts: true })
+const importDir = ref('')
+const zipInput = ref(null)
+const zipFileName = ref('')
 
 const confirmText = ref('OK')
 
@@ -124,11 +129,23 @@ watch([() => props.type, () => props.show], () => {
   confirmText.value = map[props.type] || 'OK'
 })
 
+function onZipSelected(e) {
+  const file = e.target.files[0]
+  zipFileName.value = file ? file.name : ''
+}
+
 function confirm() {
   let payload = {}
   if (props.type === 'create-project') payload = { name: name.value.trim() || 'new-project' }
   else if (props.type === 'build-knowledge-base') payload = { ...kbOptions.value }
   else if (props.type === 'build-graph') payload = { ...graphOptions.value }
+  else if (props.type === 'import-files') {
+    const zipFile = zipInput.value?.files[0]
+    payload = {
+      sourceDir: importDir.value.trim(),
+      zipFile: zipFile || null
+    }
+  }
   emit('confirm', payload)
 }
 </script>

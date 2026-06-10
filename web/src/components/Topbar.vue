@@ -19,7 +19,8 @@
     <button class="btn btn-sm btn-outline" @click="$emit('build-knowledge-base')">构建知识库</button>
     <button class="btn btn-sm btn-outline" @click="$emit('build-graph')">构建图谱</button>
     <button class="btn btn-sm btn-outline" @click="$emit('lint-project')">质量检查</button>
-    <button class="btn btn-sm btn-outline" @click="$emit('show-query')">查询</button>
+      <button class="btn btn-sm btn-outline" @click="$emit('export-project')">导出项目</button>
+      <button class="btn btn-sm btn-outline" @click="$emit('show-query')">查询</button>
   </div>
 </template>
 
@@ -37,6 +38,7 @@ const emit = defineEmits([
   'build-knowledge-base',
   'build-graph',
   'lint-project',
+  'export-project',
   'show-query'
 ])
 

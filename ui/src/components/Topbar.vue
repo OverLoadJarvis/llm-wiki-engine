@@ -46,6 +46,9 @@
       <button class="topbar-action" title="导入文件" @click="$emit('import-files')">
         <span v-html="I.download"></span>
       </button>
+      <button class="topbar-action" title="导出项目" @click="$emit('export-project')">
+        <span v-html="I.download" style="transform:rotate(180deg)"></span>
+      </button>
       <button class="topbar-action" title="构建知识库" @click="$emit('build-knowledge-base')">
         <span v-html="I.bolt"></span>
       </button>
@@ -71,7 +74,7 @@ defineProps({
   currentProjectId: { type: [String, Number], default: null },
   currentProject: { type: Object, default: null }
 })
-const emit = defineEmits(['select-project', 'create-project', 'delete-project', 'import-files', 'build-knowledge-base', 'build-graph', 'lint-project'])
+const emit = defineEmits(['select-project', 'create-project', 'delete-project', 'import-files', 'export-project', 'build-knowledge-base', 'build-graph', 'lint-project'])
 
 const projectDropdownOpen = ref(false)
 
