@@ -12,8 +12,8 @@
 
 ```yaml
 ---
-title: "Page Title"
-slug: "Page Slug"
+title: "页面标题"
+slug: "页面索引名"
 type: source | entity | concept | synthesis
 tags: []
 sources: []       # list of source slugs that inform this page
@@ -38,9 +38,9 @@ last_updated: YYYY-MM-DD
 
 | 页面类型 | 命名规则 | 示例 |
 |---|---|---|
-| Source slugs | `kebab-case`，与源文件名匹配 | `my-paper` |
+| Source slugs | `kebab-case`，与源文件名匹配 | `我的文章` |
 | Entity pages | `TitleCase.md` | `OpenAI.md`、`SamAltman.md` |
-| Concept pages | `TitleCase.md` | `ReinforcementLearning.md`、`RAG.md` |
+| Concept pages | `TitleCase.md` | `强化学习.md`、`RAG.md` |
 
 ---
 
@@ -52,8 +52,8 @@ last_updated: YYYY-MM-DD
 
 ```markdown
 ---
-title: "Source Title"
-slug: "Source Slug"
+title: "源标题"
+slug: "源索引名"
 type: source
 tags: []
 date: YYYY-MM-DD
@@ -61,18 +61,18 @@ source_file: raw/...
 ---
 
 ## Summary
-2–4 sentence summary.
+2–4 句子总结源文档的主要内容。
 
 ## Key Claims
-- Claim 1
-- Claim 2
+- 断言 1
+- 断言 2
 
 ## Key Quotes
-> "Quote here" — context
+> "引用内容" — 上下文
 
 ## Connections
-- [[EntityName]] — how they relate
-- [[ConceptName]] — how it connects
+- [[EntityName]] — 实体之间的关系
+- [[ConceptName]] — 概念之间的联系
 
 ## Contradictions
 - Contradicts [[OtherPage]] on: ...
@@ -142,19 +142,19 @@ date: YYYY-MM-DD
 # Wiki Index
 
 ## Overview
-- [Overview](overview.md) — living synthesis
+- [Overview](overview.md) — 全局概览/综合页
 
 ## Sources
-- [Source Title](sources/slug.md) — one-line summary
+- [Source Title](sources/slug.md) — 源文档摘要页
 
 ## Entities
-- [Entity Name](entities/EntityName.md) — one-line description
+- [Entity Name](entities/EntityName.md) — 实体页描述
 
 ## Concepts
-- [Concept Name](concepts/ConceptName.md) — one-line description
+- [Concept Name](concepts/ConceptName.md) — 概念页描述
 
 ## Syntheses
-- [Analysis Title](syntheses/slug.md) — what question it answers
+- [Analysis Title](syntheses/slug.md) — 问题回答
 ```
 
 ---
@@ -171,23 +171,23 @@ date: YYYY-MM-DD
 # Wiki Overview
 
 ## Summary
-A brief overview of the knowledge base's theme and scope.
+知识库的主题和范围的简要概述。
 
 ## Key Entities
-- [[EntityName]] — one-line description
-- [[EntityName]] — one-line description
+- [[EntityName]] — 实体页描述
+- [[EntityName]] — 实体页描述
 
 ## Core Concepts
-- [[ConceptName]] — one-line description
-- [[ConceptName]] — one-line description
+- [[ConceptName]] — 概念页描述
+- [[ConceptName]] — 概念页描述
 
 ## Key Findings & Insights
-- Finding 1
-- Finding 2
+- 发现 1
+- 发现 2
 
 ## Contradictions & Open Questions
-- Contradiction 1
-- Open question 1
+- 矛盾关系 1
+- 开放问题 1
 
 ## Timeline / Evolution
 - YYYY-MM-DD: event / ingestion

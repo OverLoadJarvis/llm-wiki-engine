@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
-LLM Wiki Web API — Flask 后端服务
-提供项目、文件树、文件内容、知识图谱等 REST API
+LLM Wiki Web API — Flask 后端服务 + MCP Server
+提供项目、文件树、文件内容、知识图谱等 REST API，
+并附带一个 Streamable HTTP MCP 服务供 AI 客户端调用。
 """
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
+import threading
 from pathlib import Path
+from typing import Any
 
+import requests
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
+from mcp.server.fastmcp import FastMCP
 
 REPO_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = REPO_ROOT.parent
@@ -319,13 +325,36 @@ def build_knowledge_base(project_id):
     路径参数:
         - project_id (int): 项目 ID
 
+    行为:
+        构建前将项目状态设为 building，构建完成后设为 completed。
+
     响应:
         200: 构建结果对象
     """
+    db = get_db()
+    try:
+        db.set_project_state(project_id, "building")
+    finally:
+        db.close()
+
     engine = get_engine()
     try:
         result = engine.build_knowledge_base(project_id)
+
+        db2 = get_db()
+        try:
+            db2.set_project_state(project_id, "completed")
+        finally:
+            db2.close()
+
         return jsonify(result)
+    except Exception:
+        db2 = get_db()
+        try:
+            db2.set_project_state(project_id, "unbuilt")
+        finally:
+            db2.close()
+        raise
     finally:
         engine.close()
 
@@ -342,15 +371,39 @@ def update_knowledge_base(project_id):
     请求体 (JSON, 可选):
         - source_dir (str, 可选): 源文件目录路径，若提供则先导入新文件再增量摄入
 
+    行为:
+        更新前将项目状态设为 building，更新完成后设为 completed。
+
     响应:
         200: 更新结果对象，status 可能为 "up_to_date" 或 "completed"
     """
     data = request.get_json(silent=True) or {}
     source_dir = data.get("source_dir")
+
+    db = get_db()
+    try:
+        db.set_project_state(project_id, "building")
+    finally:
+        db.close()
+
     engine = get_engine()
     try:
         result = engine.update_knowledge_base(project_id, source_dir)
+
+        db2 = get_db()
+        try:
+            db2.set_project_state(project_id, "completed")
+        finally:
+            db2.close()
+
         return jsonify(result)
+    except Exception:
+        db2 = get_db()
+        try:
+            db2.set_project_state(project_id, "unbuilt")
+        finally:
+            db2.close()
+        raise
     finally:
         engine.close()
 
@@ -414,7 +467,7 @@ def lint_project(project_id):
     """
     engine = get_engine()
     try:
-        report = engine.lint(project_id)
+        report = engine.lint(project_id, save=True)
         return jsonify({"report": report})
     finally:
         engine.close()
@@ -604,9 +657,79 @@ def export_project(project_id):
         db.close()
 
 
+@app.route("/api/projects/import", methods=["POST"])
+def import_project():
+    """导入项目 ZIP 包，恢复完整项目。
+
+    POST /api/projects/import
+
+    请求体 (multipart/form-data):
+        - file (file): 项目 ZIP 压缩包
+
+    行为:
+        1. 以 ZIP 文件名（不含扩展名）作为项目名称，创建新项目
+        2. 将 ZIP 内所有文件直接写入数据库（raw/、wiki/、graph/ 等目录结构）
+        3. 不触发知识库构建等引擎行为，纯数据落库
+
+    响应:
+        200: {"project_id": <ID>, "project_name": "<名称>", "file_count": <N>}
+        400: {"error": "..."}
+        409: {"error": "项目已存在"}
+    """
+    import tempfile
+    import zipfile
+
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        return jsonify({"error": "未提供文件"}), 400
+
+    if not file.filename.lower().endswith(".zip"):
+        return jsonify({"error": "仅支持 .zip 格式的压缩包"}), 400
+
+    # 以 ZIP 文件名（不含扩展名）作为项目名称
+    project_name = Path(file.filename).stem
+
+    db = get_db()
+    try:
+        # 检查项目名是否已存在
+        existing = db.get_project_by_name(project_name)
+        if existing:
+            return jsonify({"error": f"项目 \"{project_name}\" 已存在"}), 409
+
+        # 创建项目
+        project_id = db.create_project(project_name)
+
+        # 将 ZIP 写入临时文件
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = Path(tmp.name)
+
+        try:
+            with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                file_count = 0
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    rel_path = info.filename.replace("\\", "/")
+                    content = zf.read(info.filename)
+                    db.add_file(project_id, rel_path, content)
+                    file_count += 1
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+        return jsonify({
+            "project_id": project_id,
+            "project_name": project_name,
+            "file_count": file_count,
+        }), 201
+    finally:
+        db.close()
+
+
 @app.route("/api/projects/<int:project_id>/upload-file", methods=["POST"])
 def upload_file_to_project(project_id):
-    """外部系统向指定项目上传单个文件，并可选择增量更新知识库。
+    """外部系统向指定项目上传文件，支持单文件或 ZIP 压缩包，并可选择增量更新知识库。
 
     POST /api/projects/<project_id>/upload-file
 
@@ -614,22 +737,24 @@ def upload_file_to_project(project_id):
         - project_id (int): 项目 ID
 
     请求体 (multipart/form-data):
-        - file (file): 单个文件
+        - file (file): 单个文件或 .zip 压缩包
 
     查询参数:
         - update (bool, 可选): 是否在上传后增量更新知识库，默认 false
 
     行为:
-        1. 将文件保存到 ``uploads/<project_name>/`` 本地目录
-        2. 将文件导入到 Wiki 引擎项目的 raw/ 目录
+        1. 若为 .zip 文件: 解压到临时目录，将所有文件导入到 Wiki 引擎项目
+        2. 若为单文件: 保存到本地目录后导入
         3. 若 update=true，触发增量知识库更新
 
     响应:
-        200: {"file_name": "<文件名>", "file_id": <ID>, "imported": true,
-              "update_result": <更新结果或null>}
+        200: {"file_name": "<文件名>", "import_result": {"imported": N, "skipped": N, "errors": N},
+              "file_count": <N>, "update_result": <更新结果或null>}
         400: {"error": "..."}
         404: {"error": "项目不存在"}
     """
+    import tempfile
+    import zipfile
     from werkzeug.utils import secure_filename
 
     file = request.files.get("file")
@@ -643,14 +768,45 @@ def upload_file_to_project(project_id):
             return jsonify({"error": "项目不存在"}), 404
 
         safe_name = secure_filename(file.filename)
+        is_zip = safe_name.lower().endswith(".zip")
+
         upload_dir = DEFAULT_UPLOAD_DIR / project["name"]
         upload_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = upload_dir / safe_name
-        file.save(str(dest_path))
 
         engine = get_engine()
         try:
-            engine.import_raw_files(project_id, str(upload_dir))
+            if is_zip:
+                # ZIP 压缩包: 解压到临时目录后导入
+                extract_dir = upload_dir / f"_tmp_{safe_name}"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                    file.save(tmp.name)
+                    tmp_path = Path(tmp.name)
+
+                try:
+                    with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                        zf.extractall(str(extract_dir))
+
+                    import_result = engine.import_raw_files(project_id, str(extract_dir))
+                    file_count = import_result.get("imported", 0)
+                finally:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                    # 清理临时解压目录
+                    if extract_dir.exists():
+                        shutil.rmtree(str(extract_dir), ignore_errors=True)
+            else:
+                # 单文件: 直接保存后导入
+                dest_path = upload_dir / safe_name
+                file.save(str(dest_path))
+
+                import_result = engine.import_raw_files(project_id, str(upload_dir))
+                file_count = import_result.get("imported", 0)
+
+                # 导入完成后清理本地临时文件
+                if dest_path.exists():
+                    dest_path.unlink()
 
             update_result = None
             if request.args.get("update", "").lower() == "true":
@@ -658,15 +814,12 @@ def upload_file_to_project(project_id):
 
             return jsonify({
                 "file_name": safe_name,
-                "upload_path": str(dest_path),
-                "imported": True,
+                "import_result": import_result,
+                "file_count": file_count,
                 "update_result": update_result,
             })
         finally:
             engine.close()
-            # 导入完成后清理本地临时文件
-            if dest_path.exists():
-                dest_path.unlink()
     finally:
         db.close()
 
@@ -750,9 +903,200 @@ def external_upload():
         db.close()
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  MCP Server（内嵌，与 Flask 同进程启动）
+# ══════════════════════════════════════════════════════════════════════════
+
+API_BASE = os.environ.get("LLM_WIKI_MCP_API", "http://localhost:5000/api")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8081"))
+
+mcp = FastMCP("llm-wiki-engine")
+
+
+def _mcp_request(method: str, path: str, **kwargs) -> dict[str, Any] | bytes:
+    """MCP 工具调用本地 Flask API。"""
+    url = f"{API_BASE}{path}"
+    try:
+        resp = requests.request(method, url, timeout=300, **kwargs)
+        resp.raise_for_status()
+        ct = resp.headers.get("content-type", "")
+        if "application/json" in ct:
+            return resp.json()
+        return resp.content
+    except Exception as e:
+        raise RuntimeError(f"API 错误: {e}")
+
+
+@mcp.tool()
+def list_projects() -> str:
+    """列出所有项目，返回每个项目的 ID、名称、状态（unbuilt/building/completed）。"""
+    projects = _mcp_request("GET", "/projects")
+    if not projects:
+        return "暂无项目"
+    lines = [f"共 {len(projects)} 个项目:"]
+    for p in projects:
+        state = p.get("state", "unknown")
+        lines.append(f"  #{p['id']:>3}  {p['name']:<20}  [{state}]")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_project_state(project_id: int) -> str:
+    """查看指定项目的完整状态和详细信息。"""
+    project = _mcp_request("GET", f"/projects/{project_id}")
+    return json.dumps(project, ensure_ascii=False, indent=2, default=str)
+
+
+@mcp.tool()
+def import_project(zip_path: str, build: bool = False) -> str:
+    """上传 ZIP 创建新项目。项目名取自 ZIP 文件名。可选自动触发知识库编译。
+
+    Args:
+        zip_path: 本地 ZIP 文件的绝对路径
+        build: 导入后是否自动编译知识库
+    """
+    zip_path = Path(zip_path)
+    if not zip_path.exists():
+        return f"错误: 文件不存在: {zip_path}"
+    if not zip_path.suffix.lower() == ".zip":
+        return "错误: 仅支持 .zip 格式"
+
+    with open(zip_path, "rb") as f:
+        result = _mcp_request("POST", "/projects/import",
+                              files={"file": (zip_path.name, f, "application/zip")})
+    lines = [
+        "项目导入成功:",
+        f"  ID:     {result['project_id']}",
+        f"  名称:   {result['project_name']}",
+        f"  文件数: {result['file_count']}",
+    ]
+    if build:
+        _mcp_request("POST", f"/projects/{result['project_id']}/build")
+        lines.append("  已触发编译")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def upload_files(project_id: int, file_path: str, update: bool = False) -> str:
+    """向已有项目追加文件（单文件或 ZIP）。可选自动增量更新。
+
+    Args:
+        project_id: 目标项目 ID
+        file_path: 本地文件或 ZIP 包的绝对路径
+        update: 上传后是否自动增量更新
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return f"错误: 文件不存在: {file_path}"
+
+    update_qs = "?update=true" if update else ""
+    mime = "application/zip" if file_path.suffix.lower() == ".zip" else "application/octet-stream"
+    with open(file_path, "rb") as f:
+        result = _mcp_request("POST", f"/projects/{project_id}/upload-file{update_qs}",
+                              files={"file": (file_path.name, f, mime)})
+    lines = [
+        "文件上传完成:",
+        f"  文件名: {result['file_name']}",
+        f"  导入:   {result['import_result'].get('imported', 0)} 个",
+    ]
+    if result.get("update_result"):
+        lines.append(f"  已触发增量更新")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def update_knowledge(project_id: int) -> str:
+    """触发增量知识库更新。"""
+    result = _mcp_request("POST", f"/projects/{project_id}/update")
+    return f"知识库更新完成:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+
+
+@mcp.tool()
+def query_knowledge(project_id: int, question: str) -> str:
+    """向知识库提出自然语言问题。
+
+    Args:
+        project_id: 项目 ID
+        question: 要查询的问题
+    """
+    result = _mcp_request("POST", f"/projects/{project_id}/query", json={"question": question})
+    return result.get("answer", str(result))
+
+
+@mcp.tool()
+def health_check(project_id: int) -> str:
+    """检查项目健康状态（缺失实体、孤立节点等）。"""
+    result = _mcp_request("GET", f"/projects/{project_id}/health")
+    return f"健康检查报告:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+
+
+@mcp.tool()
+def lint_project(project_id: int) -> str:
+    """对项目进行结构/内容/一致性质量检查。"""
+    result = _mcp_request("POST", f"/projects/{project_id}/lint")
+    return f"质量检查完成:\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)}"
+
+
+@mcp.tool()
+def export_project(project_id: int, output_dir: str) -> str:
+    """导出项目 ZIP 到本地。包含 raw/wiki/graph 目录结构。
+
+    Args:
+        project_id: 项目 ID
+        output_dir: 输出目录（绝对路径）
+    """
+    output_dir = Path(output_dir)
+    project = _mcp_request("GET", f"/projects/{project_id}")
+    project_name = project.get("name", f"project-{project_id}")
+    content = _mcp_request("GET", f"/projects/{project_id}/export")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{project_name}.zip"
+    output_path.write_bytes(content)
+    return f"项目导出成功:\n  路径: {output_path}\n  大小: {output_path.stat().st_size:,} bytes"
+
+
+@mcp.tool()
+def delete_project(project_id: int, confirm: bool) -> str:
+    """删除项目及缓存。必须 confirm=true 才执行。
+
+    Args:
+        project_id: 项目 ID
+        confirm: 必须为 true
+    """
+    if not confirm:
+        return f"删除需确认，设置 confirm=true。目标: #{project_id}"
+    project = _mcp_request("GET", f"/projects/{project_id}")
+    project_name = project.get("name", str(project_id))
+    _mcp_request("DELETE", f"/projects/{project_id}")
+    return f"项目已删除: #{project_id} \"{project_name}\""
+
+
+def _start_mcp_server():
+    """在后台线程启动 MCP Streamable HTTP 服务。"""
+    import uvicorn
+    mcp_app = mcp.streamable_http_app()
+    uvicorn.run(mcp_app, host="0.0.0.0", port=MCP_PORT, log_level="warning")
+
+
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(REPO_ROOT, ".env"))
+
+    api_port = int(os.environ.get("API_PORT", "5000"))
+
     print("LLM Wiki Web API 启动中...")
     print(f"数据库: {DB_PATH}")
     print(f"上传目录: {DEFAULT_UPLOAD_DIR}")
-    print("访问地址: http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    print(f"访问地址: http://localhost:{api_port}")
+
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+
+    # MCP 服务仅在非 debug 模式下启动，避免 reloader 导致端口冲突
+    if not debug:
+        t = threading.Thread(target=_start_mcp_server, daemon=True)
+        t.start()
+        print(f"MCP 服务: http://localhost:{MCP_PORT}/mcp")
+    else:
+        print(f"MCP 服务: 已禁用（debug 模式）")
+
+    app.run(host="0.0.0.0", port=api_port, debug=debug)

@@ -8,6 +8,7 @@
       @create-project="showModal('create-project', 'Create project')"
       @delete-project="showModal('delete-project', 'Delete project')"
       @import-files="showModal('import-files', 'Import files')"
+      @import-project="showModal('import-project', 'Import project')"
       @export-project="exportProject"
       @build-knowledge-base="showModal('build-knowledge-base', 'Build knowledge base')"
       @build-graph="showModal('build-graph', 'Build graph')"
@@ -432,6 +433,22 @@ async function handleModalConfirm(payload) {
       } else {
         showToast('warn', 'Please provide a directory path or select a ZIP file.')
       }
+    } else if (t === 'import-project') {
+      const zipFile = payload.zipFile
+      if (!zipFile) {
+        showToast('warn', 'Please select a ZIP file.')
+        return
+      }
+      showToast('info', 'Importing project...')
+      const formData = new FormData()
+      formData.append('file', zipFile)
+      const result = await apiUpload('/projects/import', formData)
+      currentProjectId.value = result.project_id
+      showToast('success', `Project "${result.project_name}" imported with ${result.file_count} files.`)
+      await loadProjects()
+      await loadProjectFiles()
+      await loadGraphFiles()
+      await loadGraph()
     }
   } catch (e) {
     showToast('error', e.message || 'Action failed')

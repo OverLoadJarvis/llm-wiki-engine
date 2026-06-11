@@ -255,6 +255,24 @@ textarea.input { resize: vertical; min-height: 42px; }
 .project-select-item:hover { background: var(--neon-cyan-soft); color: var(--neon-cyan); }
 .project-select-item.active { background: var(--neon-cyan-soft); color: var(--neon-cyan); }
 
+.state-indicator {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.state-indicator.state-unbuilt { color: var(--text-muted); background: var(--border-soft); }
+.state-indicator.state-building { color: var(--neon-yellow, #f0c040); background: rgba(240, 192, 64, 0.1); animation: state-pulse 1.2s infinite; }
+.state-indicator.state-completed { color: var(--neon-green, #00ff88); background: rgba(0, 255, 136, 0.1); }
+
+@keyframes state-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .topbar-actions { display: flex; gap: 8px; }
 .topbar-action {
   width: 36px; height: 36px;

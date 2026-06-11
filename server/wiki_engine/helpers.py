@@ -178,12 +178,16 @@ def validate_ingest(db, project_id: int, changed_paths: list[str]) -> dict[str, 
         for link in extract_wikilinks(content):
             link_stem = Path(link).stem.lower() if "/" in link else link.lower()
             if link_stem not in existing_stems:
+                print(f"Broken link: {rel_path} -> {link}")
+                print(f"Existing stems: {existing_stems}")
                 broken_links.append((rel_path, link))
 
     unindexed = []
     for rel_path in changed_paths:
         stem = Path(rel_path).stem.lower()
         if stem not in index_content and Path(rel_path).name not in ("log.md", "overview.md"):
+            print(f"Unindexed page: {rel_path}")
+            print(f"Index content: {index_content}")
             unindexed.append(rel_path)
 
     return {"broken_links": broken_links, "unindexed": unindexed}

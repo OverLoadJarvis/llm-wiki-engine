@@ -9,9 +9,11 @@
     <div class="project-selector">
       <select :value="selectedProjectId" @change="onProjectChange">
         <option value="">选择项目...</option>
-        <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+        <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }} {{ stateLabel(p.state) }}</option>
       </select>
+      <span v-if="selectedState" class="state-badge" :class="'state-' + selectedState">{{ stateLabel(selectedState) }}</span>
       <button class="btn btn-sm" @click="$emit('create-project')">+ 新建</button>
+      <button class="btn btn-sm btn-outline" @click="$emit('import-project')">导入项目</button>
       <button class="btn btn-sm btn-outline" @click="$emit('import-files')">导入文件</button>
       <button class="btn btn-sm btn-outline" style="color:var(--danger);border-color:var(--danger);" @click="$emit('delete-project')">删除项目</button>
     </div>
@@ -25,15 +27,34 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   projects: { type: Array, default: () => [] },
   selectedProjectId: { type: [String, Number], default: '' }
+})
+
+const STATE_LABELS = {
+  unbuilt: '[未编译]',
+  building: '[编译中...]',
+  completed: '[已编译]',
+}
+
+function stateLabel(state) {
+  return STATE_LABELS[state] || ''
+}
+
+const selectedState = computed(() => {
+  if (!props.selectedProjectId) return ''
+  const p = props.projects.find(p => p.id === props.selectedProjectId)
+  return p ? p.state : ''
 })
 
 const emit = defineEmits([
   'select-project',
   'create-project',
   'delete-project',
+  'import-project',
   'import-files',
   'build-knowledge-base',
   'build-graph',

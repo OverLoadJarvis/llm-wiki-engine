@@ -65,6 +65,15 @@
             </div>
           </div>
 
+          <div v-else-if="type === 'import-project'">
+            <p style="color:var(--text-muted);margin:0 0 16px;line-height:1.5;">
+              Upload a project ZIP package. The filename (without .zip) will be used as the new project name.
+            </p>
+            <label class="form-label">Select ZIP file</label>
+            <input type="file" ref="projectZipInput" accept=".zip" @change="onProjectZipSelected" style="display:block;width:100%;font-size:13px;color:var(--text-primary);" />
+            <span v-if="projectZipFileName" style="display:block;font-size:11px;color:var(--text-muted);margin-top:4px;">Selected: {{ projectZipFileName }}</span>
+          </div>
+
           <div v-else-if="type === 'lint-report'" class="lint-list">
             <div v-if="lintResult.length === 0" class="empty-state">
               <span v-html="I.shield" style="width:36px;height:36px;color:var(--status-ok)"></span>
@@ -114,6 +123,9 @@ const importDir = ref('')
 const zipInput = ref(null)
 const zipFileName = ref('')
 
+const projectZipInput = ref(null)
+const projectZipFileName = ref('')
+
 const confirmText = ref('OK')
 
 watch([() => props.type, () => props.show], () => {
@@ -123,6 +135,7 @@ watch([() => props.type, () => props.show], () => {
     'build-knowledge-base': 'Start build',
     'build-graph': 'Build graph',
     'import-files': 'Import',
+    'import-project': 'Import',
     'lint-report': 'Close',
     'confirm': 'Confirm'
   }
@@ -132,6 +145,11 @@ watch([() => props.type, () => props.show], () => {
 function onZipSelected(e) {
   const file = e.target.files[0]
   zipFileName.value = file ? file.name : ''
+}
+
+function onProjectZipSelected(e) {
+  const file = e.target.files[0]
+  projectZipFileName.value = file ? file.name : ''
 }
 
 function confirm() {
@@ -145,6 +163,9 @@ function confirm() {
       sourceDir: importDir.value.trim(),
       zipFile: zipFile || null
     }
+  } else if (props.type === 'import-project') {
+    const zipFile = projectZipInput.value?.files[0]
+    payload = { zipFile: zipFile || null }
   }
   emit('confirm', payload)
 }

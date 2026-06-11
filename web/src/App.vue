@@ -6,6 +6,7 @@
       @select-project="onSelectProject"
       @create-project="openModal('create')"
       @delete-project="openModal('delete')"
+      @import-project="openModal('import-project')"
       @import-files="openModal('import')"
       @build-knowledge-base="buildKnowledgeBase"
       @build-graph="buildGraph"
@@ -95,11 +96,13 @@
       :delete-api="deleteProjectApi"
       :import-api="importFilesApi"
       :import-zip-api="importZipApi"
+      :import-project-api="importProjectApi"
       :lint-api="lintProjectApi"
       @close="activeModal = ''"
       @project-created="onProjectCreated"
       @project-deleted="onProjectDeleted"
       @files-imported="onFilesImported"
+      @project-imported="onProjectImported"
     />
   </div>
 </template>
@@ -347,6 +350,12 @@ function importZipApi(zipFile) {
   return apiUpload(`/projects/${currentProjectId.value}/import-zip`, formData)
 }
 
+function importProjectApi(zipFile) {
+  const formData = new FormData()
+  formData.append('file', zipFile)
+  return apiUpload('/projects/import', formData)
+}
+
 function lintProjectApi() {
   return api(`/projects/${currentProjectId.value}/lint`, { method: 'POST' })
 }
@@ -370,6 +379,14 @@ async function onFilesImported(result) {
   activeModal.value = ''
   statusText.value = `导入完成: ${result.imported} 个文件`
   await loadProject(currentProjectId.value)
+}
+
+async function onProjectImported(result) {
+  activeModal.value = ''
+  statusText.value = `项目导入完成: ${result.file_count} 个文件`
+  await loadProjects()
+  currentProjectId.value = result.project_id
+  await loadProject(result.project_id)
 }
 
 onMounted(async () => {

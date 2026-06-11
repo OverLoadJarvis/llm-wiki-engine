@@ -225,7 +225,7 @@ class IngestWorkflow:
 - Wiki 链接必须使用目标页面的 **slug（文件名，不含 .md 扩展名）**，而不是 title，不一致时使用 slug
 """
         print(f"  调用 LLM API...")
-        raw = call_llm(prompt, max_tokens=16384)
+        raw = call_llm(prompt, max_tokens=16384, validate_json=True)
         try:
             data = parse_json_from_response(raw)
         except (ValueError, json.JSONDecodeError) as e:

@@ -17,6 +17,7 @@
             <div class="project-select-label">Active Project</div>
             <div class="project-select-value">{{ currentProject?.name || '— no project —' }}</div>
           </div>
+          <span v-if="currentProject" class="state-indicator" :class="'state-' + currentProject.state">{{ stateLabel(currentProject.state) }}</span>
           <span v-html="I.chevronDown" style="width:16px;height:16px;color:var(--text-muted)"></span>
         </div>
         <div v-if="projectDropdownOpen" class="project-select-dropdown" @click.stop>
@@ -32,6 +33,7 @@
           >
             <span style="color:var(--neon-cyan);font-family:var(--font-mono);font-size:11px;margin-right:8px">#{{ p.id }}</span>
             {{ p.name }}
+            <span style="margin-left:auto;opacity:0.6" :style="{ color: stateColor(p.state) }">{{ stateLabel(p.state) }}</span>
           </div>
           <div style="height:1px;background:var(--border-soft);margin:8px 0"></div>
           <div class="project-select-item" @click="$emit('create-project')">
@@ -45,6 +47,9 @@
     <div class="topbar-actions">
       <button class="topbar-action" title="导入文件" @click="$emit('import-files')">
         <span v-html="I.download"></span>
+      </button>
+      <button class="topbar-action" title="导入项目" @click="$emit('import-project')">
+        <span v-html="I.plus"></span>
       </button>
       <button class="topbar-action" title="导出项目" @click="$emit('export-project')">
         <span v-html="I.download" style="transform:rotate(180deg)"></span>
@@ -74,7 +79,27 @@ defineProps({
   currentProjectId: { type: [String, Number], default: null },
   currentProject: { type: Object, default: null }
 })
-const emit = defineEmits(['select-project', 'create-project', 'delete-project', 'import-files', 'export-project', 'build-knowledge-base', 'build-graph', 'lint-project'])
+const emit = defineEmits(['select-project', 'create-project', 'delete-project', 'import-files', 'import-project', 'export-project', 'build-knowledge-base', 'build-graph', 'lint-project'])
+
+const STATE_LABELS = {
+  unbuilt: 'unbuilt',
+  building: 'building...',
+  completed: 'completed',
+}
+
+const STATE_COLORS = {
+  unbuilt: 'var(--text-muted)',
+  building: 'var(--neon-yellow, #f0c040)',
+  completed: 'var(--neon-green, #00ff88)',
+}
+
+function stateLabel(state) {
+  return STATE_LABELS[state] || state || ''
+}
+
+function stateColor(state) {
+  return STATE_COLORS[state] || 'var(--text-muted)'
+}
 
 const projectDropdownOpen = ref(false)
 

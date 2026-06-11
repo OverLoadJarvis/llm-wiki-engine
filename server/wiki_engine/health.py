@@ -360,6 +360,7 @@ Wiki 页面（{len(sample)} 个页面样本）:
         Returns:
             (页面路径, 链接目标) 元组列表
         """
+        # 文件名就是索引名
         existing_stems = {Path(p["relative_path"]).stem.lower() for p in pages}
         print("existing_stems:", existing_stems)
         broken = []
@@ -371,6 +372,7 @@ Wiki 页面（{len(sample)} 个页面样本）:
                     link_stem = Path(link).stem.lower()
                 if link_stem not in existing_stems:
                     broken.append((p["relative_path"], link))
+        print("broken:", broken)
         return broken
 
     def _find_missing_entities(

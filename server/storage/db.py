@@ -56,6 +56,14 @@ class WikiStorage:
         if SCHEMA_PATH.exists():
             self.conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             self.conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """按需执行 schema 迁移，确保向后兼容旧数据库文件。"""
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(projects)").fetchall()}
+        if "state" not in cols:
+            self.conn.execute("ALTER TABLE projects ADD COLUMN state TEXT NOT NULL DEFAULT 'unbuilt'")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -113,6 +121,15 @@ class WikiStorage:
             (project_id,),
         )
         self.conn.commit()
+
+    def set_project_state(self, project_id: int, state: str) -> bool:
+        """Set the project's state. Valid states: 'unbuilt', 'building', 'completed'."""
+        cur = self.conn.execute(
+            "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE id = ?",
+            (state, project_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
 
     # ── File CRUD ─────────────────────────────────────────────────────
 

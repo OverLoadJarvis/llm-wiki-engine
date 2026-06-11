@@ -65,6 +65,26 @@
       </div>
     </div>
 
+    <!-- Import Project Modal -->
+    <div v-if="active === 'import-project'" class="modal-overlay" @click.self="$emit('close')">
+      <div class="modal">
+        <h3>导入项目</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
+          上传一个项目 ZIP 包，将以文件名作为新项目名称导入。<br/>
+          支持从其他实例导出的项目包。
+        </p>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;">选择 ZIP 文件</label>
+          <input type="file" ref="projectZipInput" accept=".zip" @change="onProjectZipSelected" />
+          <span v-if="projectZipFileName" style="display:block;font-size:12px;color:var(--text-dim);margin-top:4px;">已选择: {{ projectZipFileName }}</span>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" @click="$emit('close')">取消</button>
+          <button class="btn" @click="doImportProject">导入</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Delete Project Confirm Modal -->
     <div v-if="active === 'delete'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal">
@@ -94,10 +114,11 @@ const props = defineProps({
   deleteApi: { type: Function, default: null },
   importApi: { type: Function, default: null },
   importZipApi: { type: Function, default: null },
+  importProjectApi: { type: Function, default: null },
   lintApi: { type: Function, default: null }
 })
 
-const emit = defineEmits(['close', 'project-created', 'project-deleted', 'files-imported'])
+const emit = defineEmits(['close', 'project-created', 'project-deleted', 'files-imported', 'project-imported'])
 
 const createName = ref('')
 const createDesc = ref('')
@@ -113,6 +134,9 @@ const lintLoading = ref(false)
 const importDir = ref('')
 const zipInput = ref(null)
 const zipFileName = ref('')
+
+const projectZipInput = ref(null)
+const projectZipFileName = ref('')
 
 const renderedLintResult = computed(() => lintResult.value ? renderMarkdown(lintResult.value) : '')
 
@@ -170,6 +194,26 @@ async function doImport() {
     if (zipInput.value) zipInput.value.value = ''
   } catch (err) {
     alert(`导入失败: ${err.message}`)
+  }
+}
+
+function onProjectZipSelected(e) {
+  const file = e.target.files[0]
+  projectZipFileName.value = file ? file.name : ''
+}
+
+async function doImportProject() {
+  const zipFile = projectZipInput.value?.files[0]
+  if (!zipFile) return alert('请选择 ZIP 文件')
+
+  try {
+    if (!props.importProjectApi) return alert('项目导入功能未配置')
+    const result = await props.importProjectApi(zipFile)
+    emit('project-imported', result)
+    projectZipFileName.value = ''
+    if (projectZipInput.value) projectZipInput.value.value = ''
+  } catch (err) {
+    alert(`导入项目失败: ${err.message}`)
   }
 }
 

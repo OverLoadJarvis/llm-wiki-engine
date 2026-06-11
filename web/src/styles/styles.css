@@ -63,6 +63,21 @@ body {
   cursor: pointer;
 }
 .project-selector select:focus { outline: none; border-color: var(--accent); }
+.state-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.state-unbuilt { background: var(--border); color: var(--text-dim); }
+.state-building { background: #fff3cd; color: #856404; animation: pulse 1.2s infinite; }
+.state-completed { background: #d4edda; color: #155724; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 .btn {
   background: var(--accent);
   color: #fff;

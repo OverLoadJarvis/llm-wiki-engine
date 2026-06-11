@@ -72,6 +72,7 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
         
         # 最后一次不校验，直接返回
         if not validate_json or attempt == max_retries:
+            print(f"Last attempt, not validating JSON: {content}")
             return content
         
         # JSON 格式校验：复用 parse_json_from_response 处理 markdown 围栏等情况
@@ -86,6 +87,7 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
                 f"你的上次回复：\n{content}\n\n"
                 f"请重新生成，确保输出合法的JSON格式。"
             )
+            print(f"LLM Attempt {attempt}: {current_prompt}")
     
     return content  # 兜底，理论上不会走到这里
 

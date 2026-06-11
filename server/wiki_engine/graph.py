@@ -1158,7 +1158,7 @@ applyFilters();
         infer: bool = False,
         clean: bool = False,
         resume: bool = True,
-        report: bool = False,
+        report: bool = True,
     ) -> dict[str, Any]:
         """为项目构建知识图谱（完整版）。
 
