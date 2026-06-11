@@ -22,3 +22,7 @@ server/test/
 server/local/
 server/uploads/
 server/*.db
+web/node_modules/
+web/dist/
+ui/node_modules/
+ui/dist/

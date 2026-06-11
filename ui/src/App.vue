@@ -82,6 +82,7 @@
       <div class="content-body">
         <GraphView
           v-if="view === 'graph'"
+          ref="graphViewRef"
           :graph-data="graphData"
           :confidence="confidence"
           :loading="graphLoading"
@@ -102,15 +103,16 @@
             <h2>No file selected</h2>
             <p>Pick a file from the sidebar to view its contents.</p>
           </div>
-
-          <DetailPanel
-            :visible="!!detailNode"
-            :node="detailNode"
-            :metadata="detailMetadata"
-            @close="detailNode = null"
-            @select-entity="handleNodeClick"
-          />
         </div>
+
+        <DetailPanel
+          v-if="view === 'graph'"
+          :node="detailNode"
+          :adjacency-map="graphAdjacencyMap"
+          :node-index="graphNodeIndex"
+          @close="detailNode = null"
+          @related-click="handleNodeClick"
+        />
       </div>
     </main>
 
@@ -191,7 +193,9 @@ const activeFile = ref('')
 const activeFileContent = ref('')
 
 const detailNode = ref(null)
-const detailMetadata = ref({})
+const graphViewRef = ref(null)
+const graphAdjacencyMap = computed(() => graphViewRef.value?.adjacencyMap || new Map())
+const graphNodeIndex = computed(() => graphViewRef.value?.nodeIndex || new Map())
 
 const apiAvailable = ref(true)
 
@@ -328,22 +332,6 @@ function tryOpenLink(link) {
 
 function handleNodeClick(node) {
   detailNode.value = node
-  detailMetadata.value = {
-    id: node.id,
-    label: node.label,
-    type: node.type,
-    connections: node.value || 1,
-    confidence: Math.random() * 0.4 + 0.5,
-    summary: 'Auto-derived from knowledge base — click to inspect.',
-    related: (graphData.value?.edges || [])
-      .filter(e => e.from === node.id || e.to === node.id)
-      .slice(0, 8)
-      .map(e => {
-        const otherId = e.from === node.id ? e.to : e.from
-        const other = (graphData.value?.nodes || []).find(n => n.id === otherId)
-        return other || { id: otherId, label: otherId, type: 'unknown' }
-      })
-  }
 }
 
 async function runLint() {

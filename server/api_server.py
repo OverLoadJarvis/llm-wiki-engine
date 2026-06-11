@@ -27,7 +27,13 @@ from storage.db import WikiStorage
 from wiki_engine import LLMWikiEngine
 from wiki_engine.constants import DEFAULT_UPLOAD_DIR
 
-app = Flask(__name__, static_folder=str(PROJECT_ROOT / "web"), static_url_path="")
+# 生产环境（Docker）使用构建产物，开发环境使用源码目录
+_WEB_DIST = PROJECT_ROOT.parent / "web-dist"
+_UI_DIST = PROJECT_ROOT.parent / "ui-dist"
+if _WEB_DIST.exists():
+    app = Flask(__name__, static_folder=str(_WEB_DIST), static_url_path="")
+else:
+    app = Flask(__name__, static_folder=str(PROJECT_ROOT / "web"), static_url_path="")
 CORS(app)
 
 DB_PATH = REPO_ROOT / "storage" / "wiki.db"
@@ -45,12 +51,19 @@ def get_engine() -> LLMWikiEngine:
 
 @app.route("/")
 def index():
-    """提供前端页面。
-
-    GET /
-    返回 web/index.html 静态页面。
-    """
+    """提供 web 前端页面。"""
+    if _WEB_DIST.exists():
+        return send_from_directory(str(_WEB_DIST), "index.html")
     return send_from_directory(str(PROJECT_ROOT / "web"), "index.html")
+
+
+@app.route("/ui/")
+@app.route("/ui/<path:filename>")
+def ui_frontend(filename="index.html"):
+    """提供 ui 前端页面（端口 5174 的开发版 → /ui/ 路径）。"""
+    if _UI_DIST.exists():
+        return send_from_directory(str(_UI_DIST), filename)
+    return send_from_directory(str(PROJECT_ROOT / "ui"), filename)
 
 
 # ── 项目 API ──────────────────────────────────────────────────────────

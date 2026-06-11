@@ -71,6 +71,8 @@ const nodeTypeConfig = {
 }
 
 const nodeTypeMap = ref({})
+const adjacencyMap = ref(new Map())
+const nodeIndex = ref(new Map())
 
 const hasGraphData = computed(() => {
   return props.graphData && props.graphData.nodes && props.graphData.nodes.length > 0
@@ -119,6 +121,21 @@ function renderGraph() {
   })
 
   nodeTypeMap.value = typeMap
+
+  // Build adjacency map & node index for detail panel
+  const adj = new Map()
+  const nIdx = new Map()
+  props.graphData.nodes.forEach(n => nIdx.set(n.id, n))
+  if (props.graphData.edges) {
+    props.graphData.edges.forEach(e => {
+      if (!adj.has(e.from)) adj.set(e.from, new Set())
+      if (!adj.has(e.to)) adj.set(e.to, new Set())
+      adj.get(e.from).add(e.to)
+      adj.get(e.to).add(e.from)
+    })
+  }
+  adjacencyMap.value = adj
+  nodeIndex.value = nIdx
 
   const edges = buildEdges(typeMap)
   const edgesDS = new DataSet(edges)
@@ -235,5 +252,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   destroyNetwork()
   if (resizeHandler) window.removeEventListener('resize', resizeHandler)
+})
+
+defineExpose({
+  adjacencyMap,
+  nodeIndex
 })
 </script>
