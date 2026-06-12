@@ -37,12 +37,7 @@
             <span class="badge" v-if="currentProjectName">{{ currentProjectName }}</span>
           </div>
 
-          <div class="toolbar-center" v-if="currentView === 'graph' && graphFilesList.length > 0">
-            <select :value="currentGraphFile" @change="onGraphFileChange" class="graph-select">
-              <option v-for="f in graphFilesList" :key="f.relative_path" :value="f.relative_path">
-                {{ f.file_name }}
-              </option>
-            </select>
+          <div class="toolbar-center" v-if="currentView === 'graph' && currentGraphFile">
             <div class="confidence-control">
               <span class="confidence-label">Confidence</span>
               <input type="range" min="0" max="1" step="0.05"
@@ -152,7 +147,6 @@ const fileTree = ref(null)
 const fileCount = ref(0)
 const graphData = ref(null)
 const graphLoading = ref(false)
-const graphFilesList = ref([])
 const currentGraphFile = ref('')
 const confidence = ref(0.3)
 const currentView = ref('graph')
@@ -227,14 +221,10 @@ async function loadProject(pid) {
     statusText.value = 'Loading graph files...'
     try {
       const all = await api(`/projects/${pid}/graph/files`)
-      graphFilesList.value = (all || []).filter(f => f.relative_path && f.relative_path.toLowerCase().endsWith('.json'))
-      if (graphFilesList.value.length > 0) {
-        if (!currentGraphFile.value || !graphFilesList.value.some(f => f.relative_path === currentGraphFile.value)) {
-          currentGraphFile.value = graphFilesList.value[0].relative_path
-        }
-      }
+      const graphFile = (all || []).find(f => f.relative_path && f.relative_path.toLowerCase() === 'graph.json')
+      currentGraphFile.value = graphFile ? graphFile.relative_path : ''
     } catch (e) {
-      graphFilesList.value = []
+      currentGraphFile.value = ''
     }
     statusText.value = 'Loading graph...'
     await loadGraph(pid)
@@ -247,7 +237,8 @@ async function loadProject(pid) {
 async function loadGraph(pid) {
   graphLoading.value = true
   try {
-    const data = await api(`/projects/${pid}/graph?file=${encodeURIComponent(currentGraphFile.value)}`)
+    const queryParam = currentGraphFile.value ? `?file=${encodeURIComponent(currentGraphFile.value)}` : ''
+    const data = await api(`/projects/${pid}/graph${queryParam}`)
     graphData.value = data
   } catch (err) {
     graphData.value = null
@@ -262,7 +253,6 @@ function resetView() {
   currentFilePath.value = ''
   currentFileContent.value = null
   selectedNode.value = null
-  graphFilesList.value = []
   currentGraphFile.value = ''
   statusProject.value = ''
 }
@@ -296,13 +286,6 @@ function toggleView() {
     }
   } else {
     currentView.value = 'graph'
-  }
-}
-
-async function onGraphFileChange(e) {
-  currentGraphFile.value = e.target.value
-  if (currentProjectId.value) {
-    await loadGraph(currentProjectId.value)
   }
 }
 
@@ -463,11 +446,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   margin-left: auto;
-}
-
-.graph-select {
-  width: 220px;
-  font-size: 0.8125rem;
 }
 
 .confidence-control {

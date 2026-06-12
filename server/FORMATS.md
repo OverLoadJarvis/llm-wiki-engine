@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 通用 Page Format（页面格式）
+## 1. 通用页面格式
 
 **适用文件：** `wiki/` 下所有页面文件（包括 `wiki/sources/`、`wiki/entities/`、`wiki/concepts/`、`wiki/syntheses/` 下的每一篇 `.md` 页面）。
 
@@ -12,39 +12,39 @@
 
 ```yaml
 ---
-title: "页面标题"
-slug: "页面索引名"
-type: source | entity | concept | synthesis
-tags: []
-sources: []       # list of source slugs that inform this page
-last_updated: YYYY-MM-DD
+标题: "页面标题"
+索引: "页面索引名"
+类型: source | entity | concept | synthesis
+标签: []
+来源: []       # list of source slugs that inform this page
+更新时间: YYYY-MM-DD
 ---
 ```
 
-`slug` 字段用于生成页面的 URL，应与文件名匹配。
-`type` 字段取值说明：
+`索引` 字段用于生成页面的 URL，应与文件名匹配。
+`类型` 字段取值说明：
 - `source` — 来源文档摘要页
 - `entity` — 实体页（人物、公司、项目、产品）
 - `concept` — 概念页（思想、框架、方法、理论）
 - `synthesis` — 综合/分析页（保存的查询回答）
 
-正文中使用 `[[slug]]` wikilinks 链接到其他 wiki 页面。
+正文中使用 `[[索引]]` wikilinks 链接到其他 wiki 页面。
 
 ---
 
-## 2. Naming Conventions（命名规范）
+## 2. 命名规范
 
 **适用场景：** 创建任何新的 wiki 页面文件时的文件命名规则。
 
 | 页面类型 | 命名规则 | 示例 |
 |---|---|---|
-| Source slugs | `kebab-case`，与源文件名匹配 | `我的文章` |
-| Entity pages | `TitleCase.md` | `OpenAI.md`、`SamAltman.md` |
-| Concept pages | `TitleCase.md` | `强化学习.md`、`RAG.md` |
+| 来源页 | `标题.md`，与源文件名匹配 | `我的文章` |
+| 实体页 | `标题案例.md` | `OpenAI.md`、`SamAltman.md` |
+| 概念页 | `标题案例.md` | `强化学习.md`、`RAG.md` |
 
 ---
 
-## 3. Source Page Format（来源页格式）
+## 3. 来源页格式
 
 **适用文件：** `wiki/sources/<slug>.md`
 
@@ -52,87 +52,87 @@ last_updated: YYYY-MM-DD
 
 ```markdown
 ---
-title: "源标题"
-slug: "源索引名"
-type: source
-tags: []
-date: YYYY-MM-DD
-source_file: raw/...
+标题: "源标题"
+索引: "源索引名"
+类型: source
+标签: []
+日期: YYYY-MM-DD
+来源: raw/...
 ---
 
-## Summary
+## 摘要
 2–4 句子总结源文档的主要内容。
 
-## Key Claims
+## 关键断言
 - 断言 1
 - 断言 2
 
-## Key Quotes
+## 引用内容
 > "引用内容" — 上下文
 
-## Connections
-- [[EntityName]] — 实体之间的关系
-- [[ConceptName]] — 概念之间的联系
+## 关联
+- [[实体名称]] — 实体之间的关系
+- [[概念名称]] — 概念之间的联系
 
-## Contradictions
-- Contradicts [[OtherPage]] on: ...
+## 矛盾
+- 与[[其他页面]]的矛盾： — ...
 ```
 
 ---
 
-## 4. Domain-Specific Templates（特定领域模板）
+## 4. 特定领域模板
 
 当摄入的源文档属于特定领域时，应使用专用模板替代上述通用来源页格式。
 
-### 4a. Diary / Journal Template（日记模板）
+### 4a. 日记模板
 
 **适用文件：** `wiki/sources/<slug>.md`（当源文档为个人日记/日志时）
 
 ```markdown
 ---
-title: "YYYY-MM-DD Diary"
-slug: "YYYY-MM-DD-diary"
-type: source
-tags: [diary]
-date: YYYY-MM-DD
+标题: "YYYY-MM-DD 日记标题"
+索引: "YYYY-MM-DD-日记"
+类型: source
+标签: [diary]
+日期: YYYY-MM-DD
 ---
-## Event Summary
+## 事件摘要
 ...
-## Key Decisions
+## 决策键
 ...
-## Energy & Mood
+## 能量 & Mood
 ...
-## Connections
+## 关联
 ...
-## Shifts & Contradictions
+## 变化 & 矛盾
 ...
 ```
 
-### 4b. Meeting Notes Template（会议记录模板）
+### 4b. 会议记录模板
 
 **适用文件：** `wiki/sources/<slug>.md`（当源文档为会议记录时）
 
 ```markdown
 ---
-title: "Meeting Title"
-slug: "YYYY-MM-DD-meeting"
-type: source
-tags: [meeting]
-date: YYYY-MM-DD
+标题: "会议标题"
+索引: "YYYY-MM-DD-会议"
+类型: source
+标签: [meeting]
+日期: YYYY-MM-DD
 ---
-## Goal
+## 目标
 ...
-## Key Discussions
+## 讨论键
 ...
-## Decisions Made
+## 决策键
 ...
-## Action Items
+## 动作项
 ...
 ```
 
 ---
 
-## 5. Index Format（索引格式）
+## 5. 索引格式
 
 **适用文件：** `wiki/index.md`
 
@@ -141,25 +141,25 @@ date: YYYY-MM-DD
 ```markdown
 # Wiki Index
 
-## Overview
-- [Overview](overview.md) — 全局概览/综合页
+## 全局概览
+- [全局概览](overview.md) — 全局概览/综合页
 
-## Sources
-- [Source Title](sources/slug.md) — 源文档摘要页
+## 来源文档
+- [源文档标题](sources/slug.md) — 源文档摘要页
 
-## Entities
-- [Entity Name](entities/EntityName.md) — 实体页描述
+## 实体页
+- [实体名称](entities/EntityName.md) — 实体页描述
 
-## Concepts
-- [Concept Name](concepts/ConceptName.md) — 概念页描述
+## 概念页
+- [概念名称](concepts/ConceptName.md) — 概念页描述
 
-## Syntheses
-- [Analysis Title](syntheses/slug.md) — 问题回答
+## Synthesis
+- [分析标题](syntheses/slug.md) — 问题回答
 ```
 
 ---
 
-## 7. Overview Format（概述格式）
+## 7. 概述格式
 
 **适用文件：** `wiki/overview.md`
 
@@ -168,37 +168,37 @@ date: YYYY-MM-DD
 此文件没有固定的 YAML frontmatter，正文结构由 LLM 根据当前 wiki 状态动态生成，通常包含：
 
 ```markdown
-# Wiki Overview
+# Wiki 概览
 
-## Summary
+## 摘要
 知识库的主题和范围的简要概述。
 
-## Key Entities
-- [[EntityName]] — 实体页描述
-- [[EntityName]] — 实体页描述
+## 关键实体
+- [[实体名称]] — 实体页描述
+- [[实体名称]] — 实体页描述
 
-## Core Concepts
-- [[ConceptName]] — 概念页描述
-- [[ConceptName]] — 概念页描述
+## 核心概念
+- [[概念名称]] — 概念页描述
+- [[概念名称]] — 概念页描述
 
-## Key Findings & Insights
+## 发现
 - 发现 1
 - 发现 2
 
-## Contradictions & Open Questions
+## 矛盾
 - 矛盾关系 1
 - 开放问题 1
 
-## Timeline / Evolution
-- YYYY-MM-DD: event / ingestion
-- YYYY-MM-DD: event / ingestion
+## 时间线
+- YYYY-MM-DD: 事件/摄入
+- YYYY-MM-DD: 事件/摄入
 ```
 
 每次 ingest 操作时，LLM 会读取当前 `overview.md` 的内容，结合新摄入的源文档，生成更新后的完整内容并覆盖原文件。
 
 ---
 
-## 8. Log Format（日志格式）
+## 8. 日志格式
 
 **适用文件：** `wiki/log.md`
 

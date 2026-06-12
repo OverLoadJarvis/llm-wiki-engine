@@ -14,6 +14,25 @@
       </div>
     </div>
 
+    <!-- JSONL Viewer -->
+    <div class="file-content" v-else-if="fileType === 'jsonl'">
+      <div class="viewer-toolbar glass-subtle">
+        <span class="file-type-badge">.jsonl · {{ jsonlLines.length }} lines</span>
+        <button class="btn btn-outline btn-sm" :class="{ 'btn-active': jsonlView === 'parsed' }" @click="jsonlView = 'parsed'">Parsed</button>
+        <button class="btn btn-outline btn-sm" :class="{ 'btn-active': jsonlView === 'raw' }" @click="jsonlView = 'raw'">Raw</button>
+        <button class="btn btn-outline btn-sm" v-if="jsonlView === 'parsed'" @click="toggleAllJson">
+          {{ allExpanded ? 'Collapse All' : 'Expand All' }}
+        </button>
+        <button class="btn btn-outline btn-sm" @click="copyText">Copy</button>
+      </div>
+      <div class="viewer-body">
+        <div v-if="jsonlView === 'parsed'" class="json-tree jsonl-tree" v-html="jsonlTreeHtml" @click="onJsonTreeClick"></div>
+        <div v-else class="code-view">
+          <pre><code>{{ content }}</code></pre>
+        </div>
+      </div>
+    </div>
+
     <!-- HTML Viewer -->
     <div class="file-content" v-else-if="fileType === 'html'">
       <div class="viewer-toolbar glass-subtle">
@@ -66,6 +85,7 @@ const ext = computed(() => (props.filePath.split('.').pop() || '').toLowerCase()
 
 const fileType = computed(() => {
   if (ext.value === 'json') return 'json'
+  if (ext.value === 'jsonl') return 'jsonl'
   if (ext.value === 'html' || ext.value === 'htm') return 'html'
   if (ext.value === 'md' || ext.value === 'markdown') return 'md'
   return 'text'
@@ -76,6 +96,9 @@ const jsonError = ref('')
 const allExpanded = ref(true)
 const htmlView = ref('preview')
 const collapsedNodes = ref(new Set())
+
+const jsonlLines = ref([])
+const jsonlView = ref('parsed')
 
 function parseJson() {
   if (!props.content || props.content.trim() === '') {
@@ -92,8 +115,29 @@ function parseJson() {
   }
 }
 
+function parseJsonl() {
+  if (!props.content || props.content.trim() === '') {
+    jsonlLines.value = []
+    return
+  }
+  const lines = props.content.split('\n')
+  const result = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.trim() === '') continue
+    try {
+      const parsed = JSON.parse(line)
+      result.push({ lineNum: i + 1, raw: line, parsed, error: null })
+    } catch (e) {
+      result.push({ lineNum: i + 1, raw: line, parsed: null, error: e.message })
+    }
+  }
+  jsonlLines.value = result
+}
+
 watch(() => props.content, () => {
   if (fileType.value === 'json') parseJson()
+  if (fileType.value === 'jsonl') parseJsonl()
 }, { immediate: true })
 
 watch(allExpanded, (val) => {
@@ -105,6 +149,32 @@ watch(allExpanded, (val) => {
 const jsonTreeHtml = computed(() => {
   if (!parsedJson.value) return ''
   return renderJsonNode(parsedJson.value, 'root')
+})
+
+const jsonlTreeHtml = computed(() => {
+  if (jsonlLines.value.length === 0) return ''
+  let html = ''
+  for (const item of jsonlLines.value) {
+    const id = 'jsonl-line-' + item.lineNum
+    html += `<div class="jsonl-line">`
+    html += `<div class="jsonl-line-header json-toggle" data-toggle-id="${id}">`
+    html += `<span class="json-arrow">▼</span>`
+    html += `<span class="jsonl-line-num">Line ${item.lineNum}</span>`
+    if (item.error) {
+      html += `<span class="jsonl-error-tag">parse error</span>`
+    }
+    html += `</div>`
+    html += `<div class="jsonl-line-body json-children" id="${id}">`
+    if (item.error) {
+      html += `<div class="jsonl-error">${escapeHtml(item.error)}</div>`
+      html += `<pre class="jsonl-raw"><code>${escapeHtml(item.raw)}</code></pre>`
+    } else {
+      html += renderJsonNode(item.parsed, 'line-' + item.lineNum)
+    }
+    html += `</div>`
+    html += `</div>`
+  }
+  return html
 })
 
 const renderedMarkdown = computed(() => mdRender(props.content))
@@ -537,6 +607,69 @@ onMounted(() => {
 .json-tree :deep(.json-comma) {
   color: var(--text-tertiary);
   margin-left: 2px;
+}
+
+/* ── JSONL Tree ────────────────────────────────────────────── */
+.jsonl-tree {
+  padding: 8px 12px;
+}
+
+.jsonl-tree :deep(.jsonl-line) {
+  margin-bottom: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.jsonl-tree :deep(.jsonl-line-header) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.jsonl-tree :deep(.jsonl-line-num) {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.jsonl-tree :deep(.jsonl-error-tag) {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--danger, #FF3B30);
+  background: rgba(255, 59, 48, 0.12);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+.jsonl-tree :deep(.jsonl-line-body) {
+  padding: 8px 16px 12px;
+  margin-left: 8px;
+  border-left: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.jsonl-tree :deep(.jsonl-error) {
+  color: var(--danger, #FF3B30);
+  font-size: 0.8125rem;
+  padding: 8px;
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.jsonl-tree :deep(.jsonl-raw) {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.02);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin: 0;
 }
 
 .error-message {

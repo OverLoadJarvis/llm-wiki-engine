@@ -220,9 +220,8 @@ class IngestWorkflow:
 }}
 
 重要提示:
-- source_page、entity_pages 和 concept_pages 中的每一页都必须包含完整的 YAML frontmatter (title, type, tags, sources 等字段)
-- slug使用中文，内容使用中文
-- Wiki 链接必须使用目标页面的 **slug（文件名，不含 .md 扩展名）**，而不是 title，不一致时使用 slug
+- 来源页、实体页 和 概念页中的每一页都必须包含完整的 YAML frontmatter (标题, 类型, 标签, 来源 等字段)
+- Wiki 链接必须使用目标页面的 **slug/索引名（不含 .md 扩展名）**，而不是标题，不一致时使用 slug/索引名
 """
         print(f"  调用 LLM API...")
         raw = call_llm(prompt, max_tokens=16384, validate_json=True)
