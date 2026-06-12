@@ -163,7 +163,7 @@ Wiki 页面:
                 f'哪些页面与回答以下问题最相关："{question}"\n\n'
                 f'仅返回一个相对路径的 JSON 数组，例如 ["sources/foo.md", "concepts/Bar.md"]。最多 15 个页面。'
             )
-            raw = call_llm(prompt, "LLM_MODEL_FAST", "claude-3-5-haiku-latest", max_tokens=5120)
+            raw = call_llm(prompt, "LLM_MODEL_FAST", "claude-3-5-haiku-latest", max_tokens=5120, validate_json=True)
             raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
             raw = re.sub(r"\s*```$", "", raw.strip())
             try:

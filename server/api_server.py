@@ -331,7 +331,7 @@ def search_files(project_id):
 
 @app.route("/api/projects/<int:project_id>/build", methods=["POST"])
 def build_knowledge_base(project_id):
-    """构建知识库（完整流程：解析、索引、生成图谱等）。
+    """构建知识库（完整流程：解析、索引、生成图谱等）。不会构建隐式边
 
     POST /api/projects/<project_id>/build
 
@@ -488,7 +488,7 @@ def lint_project(project_id):
 
 @app.route("/api/projects/<int:project_id>/graph/build", methods=["POST"])
 def build_graph(project_id):
-    """构建/重建知识图谱。
+    """构建/重建知识图谱。构建会构建隐式边（INFERRED / AMBIGUOUS）。
 
     POST /api/projects/<project_id>/graph/build
 
