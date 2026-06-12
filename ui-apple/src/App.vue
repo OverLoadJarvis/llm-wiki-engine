@@ -37,7 +37,7 @@
             <span class="badge" v-if="currentProjectName">{{ currentProjectName }}</span>
           </div>
 
-          <div class="toolbar-center" v-if="currentView === 'graph' && currentGraphFile">
+          <div class="toolbar-center" v-if="currentView === 'graph'">
             <div class="confidence-control">
               <span class="confidence-label">Confidence</span>
               <input type="range" min="0" max="1" step="0.05"
@@ -297,9 +297,25 @@ function onRelatedNodeClick(rel) {
   selectedNode.value = rel
 }
 
+function findNodeByTarget(target) {
+  if (!graphData.value?.nodes) return null
+  const normalized = target.trim().toLowerCase()
+  for (const node of graphData.value.nodes) {
+    if (node.id && String(node.id).toLowerCase() === normalized) return node
+    if (node.label && node.label.toLowerCase() === normalized) return node
+  }
+  for (const node of graphData.value.nodes) {
+    if (node.label && node.label.toLowerCase().includes(normalized)) return node
+    if (node.path && node.path.toLowerCase().includes(normalized)) return node
+  }
+  return null
+}
+
 async function openWikiLink(target) {
   if (!currentProjectId.value) return
-  await openFile(target)
+  const node = findNodeByTarget(target)
+  const filePath = node?.path || target
+  await openFile(filePath)
 }
 
 async function buildKnowledgeBase() {

@@ -652,6 +652,8 @@ watch(() => props.confidence, () => {
 onBeforeUnmount(() => {
   destroyNetwork()
 })
+
+defineExpose({ adjacencyMap, nodeIndex })
 </script>
 
 <style scoped>
