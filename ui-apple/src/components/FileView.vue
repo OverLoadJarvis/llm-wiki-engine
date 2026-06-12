@@ -51,7 +51,18 @@
 
     <!-- Markdown Viewer -->
     <div class="file-content" v-else-if="fileType === 'md'">
-      <div class="viewer-body md-body" v-html="renderedMarkdown" @click="onMarkdownClick"></div>
+      <div class="viewer-toolbar glass-subtle">
+        <span class="file-type-badge">.md</span>
+        <button v-if="mdView === 'preview' && !isRawFile" class="btn btn-outline btn-sm" @click="startEdit">Edit</button>
+        <template v-if="mdView === 'edit'">
+          <button class="btn btn-outline btn-sm btn-active" @click="saveEdit">Save</button>
+          <button class="btn btn-outline btn-sm" @click="cancelEdit">Cancel</button>
+        </template>
+      </div>
+      <div class="viewer-body">
+        <div v-if="mdView === 'preview'" class="md-body" v-html="renderedMarkdown" @click="onMarkdownClick"></div>
+        <textarea v-else class="md-editor" v-model="editingContent"></textarea>
+      </div>
     </div>
 
     <!-- Plain Text Viewer -->
@@ -76,12 +87,14 @@ import { renderMarkdown as mdRender } from '../utils/markdown.js'
 
 const props = defineProps({
   filePath: { type: String, default: '' },
-  content: { type: String, default: '' }
+  content: { type: String, default: '' },
+  projectId: { type: String, default: '' }
 })
 
-const emit = defineEmits(['open-link'])
+const emit = defineEmits(['open-link', 'save-file'])
 
 const ext = computed(() => (props.filePath.split('.').pop() || '').toLowerCase())
+const isRawFile = computed(() => props.filePath.startsWith('raw/'))
 
 const fileType = computed(() => {
   if (ext.value === 'json') return 'json'
@@ -99,6 +112,9 @@ const collapsedNodes = ref(new Set())
 
 const jsonlLines = ref([])
 const jsonlView = ref('parsed')
+
+const mdView = ref('preview')
+const editingContent = ref('')
 
 function parseJson() {
   if (!props.content || props.content.trim() === '') {
@@ -178,6 +194,29 @@ const jsonlTreeHtml = computed(() => {
 })
 
 const renderedMarkdown = computed(() => mdRender(props.content))
+
+function startEdit() {
+  editingContent.value = props.content
+  mdView.value = 'edit'
+}
+
+function cancelEdit() {
+  mdView.value = 'preview'
+  editingContent.value = ''
+}
+
+function saveEdit() {
+  emit('save-file', {
+    filePath: props.filePath,
+    content: editingContent.value
+  })
+  mdView.value = 'preview'
+}
+
+watch(() => props.filePath, () => {
+  mdView.value = 'preview'
+  editingContent.value = ''
+})
 
 function onMarkdownClick(e) {
   const link = e.target.closest('a.wiki-link')
@@ -328,6 +367,29 @@ onMounted(() => {
   background: rgba(0, 122, 255, 0.08);
   color: var(--accent);
   border-color: rgba(0, 122, 255, 0.2);
+}
+
+.md-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.md-editor:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .viewer-body {

@@ -246,6 +246,38 @@ def get_file_content(project_id, rel_path):
         db.close()
 
 
+@app.route("/api/projects/<int:project_id>/files/<path:rel_path>", methods=["PUT"])
+def update_file_content(project_id, rel_path):
+    """更新指定文件的内容。
+
+    PUT /api/projects/<project_id>/files/<rel_path>
+
+    路径参数:
+        - project_id (int): 项目 ID
+        - rel_path (str): 文件相对路径，如 "wiki/index.md"
+
+    请求体 (JSON):
+        - content (str): 新的文件内容
+
+    响应:
+        200: {"ok": true}
+        400: {"error": "缺少 content 字段"}
+        404: {"error": "文件不存在"}
+    """
+    data = request.get_json(force=True)
+    content = data.get("content")
+    if content is None:
+        return jsonify({"error": "缺少 content 字段"}), 400
+    db = get_db()
+    try:
+        ok = db.update_file_by_path(project_id, rel_path, content)
+        if not ok:
+            return jsonify({"error": "文件不存在"}), 404
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
 # ── 知识图谱 API ──────────────────────────────────────────────────────
 
 @app.route("/api/projects/<int:project_id>/graph", methods=["GET"])

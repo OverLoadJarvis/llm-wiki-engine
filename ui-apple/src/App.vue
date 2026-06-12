@@ -76,7 +76,9 @@
             v-else-if="currentView === 'file' && currentFileContent !== null"
             :file-path="currentFilePath"
             :content="currentFileContent"
+            :project-id="currentProjectId"
             @open-link="openWikiLink"
+            @save-file="onSaveFile"
           />
           <div v-else class="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -316,6 +318,24 @@ async function openWikiLink(target) {
   const node = findNodeByTarget(target)
   const filePath = node?.path || target
   await openFile(filePath)
+}
+
+async function onSaveFile({ filePath, content }) {
+  if (!currentProjectId.value) return
+  statusText.value = 'Saving...'
+  try {
+    await api(`/projects/${currentProjectId.value}/files/${encodeURIComponent(filePath)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content })
+    })
+    statusText.value = 'File saved'
+    if (currentFilePath.value === filePath) {
+      const updated = await apiText(`/projects/${currentProjectId.value}/files/${encodeURIComponent(filePath)}`)
+      currentFileContent.value = updated
+    }
+  } catch (err) {
+    statusText.value = `Save failed: ${err.message}`
+  }
 }
 
 async function buildKnowledgeBase() {
