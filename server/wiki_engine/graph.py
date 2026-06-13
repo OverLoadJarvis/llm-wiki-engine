@@ -27,6 +27,7 @@ from wiki_engine.constants import (
     GRAPH_CHECKPOINT_PATH,
     TYPE_COLORS,
 )
+from wiki_engine.prompt import GRAPH_INFER_EDGE_PROMPT
 from tools.utils import call_llm, extract_wikilinks, sha256
 
 
@@ -460,36 +461,12 @@ class GraphWorkflow:
             global_idx = already_done + i
             print(f"    [{global_idx}/{grand_total}] Inferring for '{src}'... ", end="", flush=True)
 
-            prompt = f"""分析此 wiki 页面，识别与其他页面的隐式语义关系。
-
-源页面: {src}
-内容:
-{full_content[:2000]}
-
-所有可用页面:
-{node_list}
-
-此页面已提取的边:
-{existing_edge_summary}
-
-仅返回一个 JSON 对象，包含 "edges" 数组，列出尚未被显式 wikilink 捕获的新关系。响应必须严格为以下格式的合法 JSON：
-{{
-  "edges": [
-    {{"to": "page-id", "relationship": "一句话描述", "confidence": 0.0-1.0, "type": "INFERRED 或 AMBIGUOUS"}}
-  ]
-}}
-
-关键指令:
-你必须仅返回以 {{ 开头、以 }} 结尾的原始 JSON 字符串。
-不要输出项目符号。不要输出 Markdown 列表。
-任何对话性前缀都会导致系统崩溃。
-
-规则:
-- 仅包含上述可用页面列表中的页面
-- 置信度 >= 0.7 → INFERRED，< 0.7 → AMBIGUOUS
-- 不要重复已提取列表中的边
-- 如果没有发现新关系，返回 {{"edges": []}}
-"""
+            prompt = GRAPH_INFER_EDGE_PROMPT.format(
+                src=src,
+                full_content=full_content[:2000],
+                node_list=node_list,
+                existing_edge_summary=existing_edge_summary,
+            )
             page_edges = []
             valid_rels = []
             try:

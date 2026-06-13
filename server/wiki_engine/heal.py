@@ -16,6 +16,7 @@ from typing import Any
 from storage.db import WikiStorage
 from wiki_engine.helpers import append_log
 from tools.utils import call_llm, extract_wikilinks
+from wiki_engine.prompt import HEAL_ENTITY_PROMPT
 
 
 class HealWorkflow:
@@ -215,25 +216,12 @@ class HealWorkflow:
             truncated = s["content"][:800]
             context += f"\n\n### {Path(s['path']).name}\n{truncated}"
 
-        prompt = f"""你正在维护一个企业知识库 Wiki。
-为实体 "{entity}" 创建一个定义页面。
-
-该实体在当前 wiki 中的引用上下文：
-{context}
-
-格式：
----
-title: "{entity}"
-type: entity
-tags: []
-sources: {[Path(s['path']).name for s in sources]}
----
-
-# {entity}
-
-写一段全面的段落，定义 `{entity}` 在该 wiki 上下文中的含义、主要意义，
-以及与之相关的任何行动或关联。
-"""
+        sources_list = str([Path(s["path"]).name for s in sources])
+        prompt = HEAL_ENTITY_PROMPT.format(
+            entity=entity,
+            context=context,
+            sources_list=sources_list,
+        )
         result = call_llm(prompt, default_model=model, max_tokens=8192)
         return result
 

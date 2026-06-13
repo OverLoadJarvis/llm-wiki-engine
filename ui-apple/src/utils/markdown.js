@@ -1,6 +1,55 @@
 import { escapeHtml } from './api.js'
 
+/**
+ * 解析 YAML frontmatter，返回 { frontmatter, body }
+ * frontmatter 为 null 表示文档没有元数据头
+ */
+export function parseFrontmatter(text) {
+  if (!text || !text.startsWith('---')) {
+    return { frontmatter: null, body: text || '' }
+  }
+  const secondSep = text.indexOf('---', 3)
+  if (secondSep === -1) {
+    return { frontmatter: null, body: text }
+  }
+  const yamlBlock = text.slice(3, secondSep).trim()
+  const body = text.slice(secondSep + 3).trim()
+
+  const frontmatter = {}
+  const lines = yamlBlock.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const colonIdx = trimmed.indexOf(':')
+    if (colonIdx === -1) continue
+    const key = trimmed.slice(0, colonIdx).trim()
+    let value = trimmed.slice(colonIdx + 1).trim()
+
+    // 去掉引号
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+
+    // 解析数组 [...]
+    if (value.startsWith('[') && value.endsWith(']')) {
+      const inner = value.slice(1, -1).trim()
+      value = inner ? inner.split(',').map(s => s.trim().replace(/^["']|["']$/g, '')) : []
+    }
+
+    frontmatter[key] = value
+  }
+
+  return { frontmatter, body }
+}
+
 export function renderMarkdown(text) {
+  if (!text) return ''
+  const { body } = parseFrontmatter(text)
+  return renderMarkdownBody(body)
+}
+
+export function renderMarkdownBody(text) {
   let html = text
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')

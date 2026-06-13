@@ -37,22 +37,10 @@
         <div class="detail-path">{{ node.path }}</div>
       </div>
 
-      <!-- Preview -->
-      <div v-if="node.preview" class="detail-field">
-        <div class="detail-field-label">Preview</div>
-        <div class="detail-preview-box" v-html="renderedPreview"></div>
-      </div>
-
-      <!-- Markdown -->
+      <!-- Content -->
       <div v-if="node.markdown" class="detail-field">
         <div class="detail-field-label">Content</div>
-        <div class="detail-markdown-toggle" @click="mdOpen = !mdOpen">
-          <span>View full content</span>
-          <svg class="arrow" :class="{ open: mdOpen }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
-        <div class="detail-markdown-content" :class="{ open: mdOpen }" v-html="renderedMarkdown"></div>
+        <div class="detail-markdown-content open" v-html="renderedMarkdown"></div>
       </div>
 
       <!-- Related Nodes -->
@@ -87,7 +75,6 @@ defineEmits(['close', 'related-click'])
 
 const panelWidth = ref(380)
 const isResizing = ref(false)
-const mdOpen = ref(false)
 
 let startX = 0
 let startW = 0
@@ -95,10 +82,6 @@ let startW = 0
 const typeColor = computed(() => {
   return (fileTypeColors[props.node?.type] || '#8E8E93')
 })
-
-const renderedPreview = computed(() =>
-  props.node?.preview ? renderMarkdown(props.node.preview) : ''
-)
 
 const renderedMarkdown = computed(() =>
   props.node?.markdown ? renderMarkdown(props.node.markdown) : ''

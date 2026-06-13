@@ -1,0 +1,23 @@
+"""提示词模板模块。
+
+所有 LLM 调用的提示词以 Python 字符串常量形式定义，
+方便添加注释和维护版本。
+"""
+
+from wiki_engine.prompt.prompts import (
+    INGEST_PROMPT,
+    QUERY_ANSWER_PROMPT,
+    QUERY_RELEVANT_PAGES_PROMPT,
+    HEALTH_SEMANTIC_CHECK_PROMPT,
+    GRAPH_INFER_EDGE_PROMPT,
+    HEAL_ENTITY_PROMPT,
+)
+
+__all__ = [
+    "INGEST_PROMPT",
+    "QUERY_ANSWER_PROMPT",
+    "QUERY_RELEVANT_PAGES_PROMPT",
+    "HEALTH_SEMANTIC_CHECK_PROMPT",
+    "GRAPH_INFER_EDGE_PROMPT",
+    "HEAL_ENTITY_PROMPT",
+]

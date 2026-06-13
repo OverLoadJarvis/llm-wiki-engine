@@ -60,6 +60,34 @@
         </template>
       </div>
       <div class="viewer-body">
+        <div v-if="frontmatter && mdView === 'preview'" class="frontmatter-card">
+          <div class="fm-header" v-if="frontmatter.title">
+            <span class="fm-title">{{ frontmatter.title }}</span>
+            <span v-if="frontmatter.slug" class="fm-slug">{{ frontmatter.slug }}</span>
+          </div>
+          <div class="fm-grid">
+            <div class="fm-row" v-if="frontmatter.type">
+              <span class="fm-label">Type</span>
+              <span class="fm-type-badge" :class="'fm-type-' + frontmatter.type">{{ frontmatter.type }}</span>
+            </div>
+            <div class="fm-row" v-if="frontmatter.tags && frontmatter.tags.length">
+              <span class="fm-label">Tags</span>
+              <span class="fm-tags">
+                <span class="fm-tag" v-for="tag in frontmatter.tags" :key="tag">{{ tag }}</span>
+              </span>
+            </div>
+            <div class="fm-row" v-if="frontmatter.sources && frontmatter.sources.length">
+              <span class="fm-label">Sources</span>
+              <span class="fm-tags">
+                <span class="fm-tag fm-tag-source" v-for="src in frontmatter.sources" :key="src">{{ src }}</span>
+              </span>
+            </div>
+            <div class="fm-row" v-if="frontmatter['update date']">
+              <span class="fm-label">Updated</span>
+              <span class="fm-value fm-date">{{ frontmatter['update date'] }}</span>
+            </div>
+          </div>
+        </div>
         <div v-if="mdView === 'preview'" class="md-body" v-html="renderedMarkdown" @click="onMarkdownClick"></div>
         <textarea v-else class="md-editor" v-model="editingContent"></textarea>
       </div>
@@ -83,7 +111,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { escapeHtml } from '../utils/api.js'
-import { renderMarkdown as mdRender } from '../utils/markdown.js'
+import { renderMarkdown as mdRender, parseFrontmatter } from '../utils/markdown.js'
 
 const props = defineProps({
   filePath: { type: String, default: '' },
@@ -194,6 +222,11 @@ const jsonlTreeHtml = computed(() => {
 })
 
 const renderedMarkdown = computed(() => mdRender(props.content))
+
+const frontmatter = computed(() => {
+  if (fileType.value !== 'md') return null
+  return parseFrontmatter(props.content).frontmatter
+})
 
 function startEdit() {
   editingContent.value = props.content
@@ -751,5 +784,132 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.04);
   border-radius: 100px;
   text-transform: uppercase;
+}
+
+/* ── Frontmatter Card ──────────────────────────────────────── */
+.frontmatter-card {
+  max-width: 860px;
+  margin: 0 auto 20px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.fm-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.fm-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.fm-slug {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.fm-grid {
+  padding: 12px 20px;
+}
+
+.fm-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.fm-row:first-child {
+  padding-top: 0;
+}
+
+.fm-row:last-child {
+  padding-bottom: 0;
+}
+
+.fm-label {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fm-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.fm-date {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.fm-type-badge {
+  display: inline-block;
+  padding: 1px 10px;
+  border-radius: 100px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fm-type-source {
+  background: rgba(52, 199, 89, 0.12);
+  color: var(--node-source);
+}
+
+.fm-type-entity {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--node-entity);
+}
+
+.fm-type-concept {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--node-concept);
+}
+
+.fm-type-synthesis {
+  background: rgba(175, 82, 222, 0.12);
+  color: var(--node-synthesis);
+}
+
+.fm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fm-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 100px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--accent);
+}
+
+.fm-tag-source {
+  background: rgba(52, 199, 89, 0.08);
+  color: var(--node-source);
 }
 </style>

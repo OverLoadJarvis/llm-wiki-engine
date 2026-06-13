@@ -12,23 +12,23 @@
 
 ```yaml
 ---
-标题: "页面标题"
-索引: "页面索引名"
-类型: source | entity | concept | synthesis
-标签: []
-来源: []       # list of source slugs that inform this page
-更新时间: YYYY-MM-DD
+title: "页面标题"
+slug: "页面索引, wiki link 唯一标识, 可与页面标题一致"
+type: source | entity | concept | synthesis
+tags: []
+sources: []       # list of source slugs that inform this page
+update date: YYYY-MM-DD
 ---
 ```
 
-`索引` 字段用于生成页面的 URL，应与文件名匹配。
-`类型` 字段取值说明：
-- `source` — 来源文档摘要页
-- `entity` — 实体页（人物、公司、项目、产品）
+`slug` 字段用于生成页面的 URL，应与文件名匹配。
+`type` 字段取值说明：
+- `source` — 来源页（来源文档的摘要）
+- `entity` — 实体页（人物、公司、项目、产品、素材、记录）
 - `concept` — 概念页（思想、框架、方法、理论）
 - `synthesis` — 综合/分析页（保存的查询回答）
 
-正文中使用 `[[索引]]` wikilinks 链接到其他 wiki 页面。
+正文中使用 `[[slug]]` wikilinks 链接到其他 wiki 页面。
 
 ---
 
@@ -38,9 +38,9 @@
 
 | 页面类型 | 命名规则 | 示例 |
 |---|---|---|
-| 来源页 | `标题.md`，与源文件名匹配 | `我的文章` |
-| 实体页 | `标题案例.md` | `OpenAI.md`、`SamAltman.md` |
-| 概念页 | `标题案例.md` | `强化学习.md`、`RAG.md` |
+| source | `<slug>.md`，与源文件名匹配 | `我的文章.md` |
+| entity | `<slug>.md` | `OpenAI.md`、`SamAltman.md` |
+| concept | `<slug>.md` | `强化学习.md`、`RAG.md` |
 
 ---
 
@@ -52,12 +52,12 @@
 
 ```markdown
 ---
-标题: "源标题"
-索引: "源索引名"
-类型: source
-标签: []
-日期: YYYY-MM-DD
-来源: raw/...
+title: "源页面标题"
+slug: "源页面索引"
+type: source
+tags: []
+update date: YYYY-MM-DD
+sources: raw/...
 ---
 
 ## 摘要
@@ -71,8 +71,8 @@
 > "引用内容" — 上下文
 
 ## 关联
-- [[实体名称]] — 实体之间的关系
-- [[概念名称]] — 概念之间的联系
+- [[实体slug]] — 实体之间的关系
+- [[概念slug]] — 概念之间的联系
 
 ## 矛盾
 - 与[[其他页面]]的矛盾： — ...
@@ -90,11 +90,11 @@
 
 ```markdown
 ---
-标题: "YYYY-MM-DD 日记标题"
-索引: "YYYY-MM-DD-日记"
-类型: source
-标签: [diary]
-日期: YYYY-MM-DD
+title: "YYYY-MM-DD 日记标题"
+slug: "YYYY-MM-DD-日记"
+type: source
+tags: [diary]
+update date: YYYY-MM-DD
 ---
 ## 事件摘要
 ...
@@ -114,11 +114,11 @@
 
 ```markdown
 ---
-标题: "会议标题"
-索引: "YYYY-MM-DD-会议"
-类型: source
-标签: [meeting]
-日期: YYYY-MM-DD
+title: "会议标题"
+slug: "YYYY-MM-DD-会议"
+type: source
+tags: [meeting]
+update date: YYYY-MM-DD
 ---
 ## 目标
 ...
@@ -174,12 +174,12 @@
 知识库的主题和范围的简要概述。
 
 ## 关键实体
-- [[实体名称]] — 实体页描述
-- [[实体名称]] — 实体页描述
+- [[实体slug]] — 实体页描述
+- [[实体slug]] — 实体页描述
 
 ## 核心概念
-- [[概念名称]] — 概念页描述
-- [[概念名称]] — 概念页描述
+- [[概念slug]] — 概念页描述
+- [[概念slug]] — 概念页描述
 
 ## 发现
 - 发现 1

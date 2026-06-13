@@ -16,6 +16,8 @@ from typing import Any
 
 from storage.db import WikiStorage
 from wiki_engine.helpers import append_log
+from wiki_engine.constants import SCHEMA_FILE
+from wiki_engine.prompt import HEALTH_SEMANTIC_CHECK_PROMPT
 from tools.utils import call_llm, extract_wikilinks, strip_frontmatter
 
 
@@ -237,23 +239,10 @@ class HealthWorkflow:
             pages_context += f"\n\n### {p['relative_path']}\n{content[:1500]}"
 
         print("  运行语义检查 (LLM)...")
-        prompt = f"""你正在检查一个企业知识库 Wiki。审查以下页面并识别:
-1. 页面之间的矛盾（冲突的主张）
-2. 过时内容（已被新源文档取代的摘要）
-3. 数据缺口（Wiki 无法回答的重要问题 —— 建议具体来源）
-4. 被提及但缺乏深度的概念
-
-Wiki 页面（{len(sample)} 个页面样本）:
-{pages_context}
-
-返回一个 Markdown 检查报告，包含以下部分:
-## 矛盾
-## 过时内容
-## 数据缺口和建议来源
-## 需要深化的概念
-
-请具体指明涉及的页面和主张。
-"""
+        prompt = HEALTH_SEMANTIC_CHECK_PROMPT.format(
+            sample_count=len(sample),
+            pages_context=pages_context,
+        )
         semantic_report = call_llm(prompt, max_tokens=8192*10)
 
         report_lines = [

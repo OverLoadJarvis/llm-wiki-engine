@@ -18,6 +18,7 @@ from typing import Any
 
 from storage.db import WikiStorage
 from wiki_engine.constants import SCHEMA_FILE
+from wiki_engine.prompt import INGEST_PROMPT
 from wiki_engine.graph import GraphWorkflow
 from wiki_engine.helpers import (
     append_log,
@@ -185,44 +186,14 @@ class IngestWorkflow:
         proj = self.db.get_project(project_id)
         proj_name = proj["name"] if proj else "unknown"
 
-        prompt = f"""你正在维护一个企业知识库 Wiki。处理这份源文档并将其知识整合到 Wiki 中。
-
-项目: {proj_name}
-
-格式规范:
-{schema}
-
-当前 Wiki 状态:
-{wiki_context if wiki_context else "(Wiki 为空 — 这是第一份源文档)"}
-
-待摄入的新源文档 (文件: {source_filename}):
-=== 源文档开始 ===
-{source_content}
-=== 源文档结束 ===
-
-当前日期: {today}
-
-只返回一个有效的 JSON 对象(不要 markdown 代码围栏，不要 JSON 之外的任何文字):
-{{
-  "title": "源文档的人类可读标题",
-  "slug": "kebab-case-slug",
-  "source_page": "wiki/sources/<slug>.md 的完整 markdown 内容 — 使用 schema 中的源页面格式。关键：将关键人物、产品、概念和项目积极转换为内联 [[WikiLink]]",
-  "index_entry": "- [标题](sources/slug.md) — 一行摘要",
-  "overview_update": "wiki/overview.md 的完整更新内容，或 null",
-  "entity_pages": [
-    {{"path": "entities/实体名.md", "content": "完整 markdown 内容"}}
-  ],
-  "concept_pages": [
-    {{"path": "concepts/概念名.md", "content": "完整 markdown 内容"}}
-  ],
-  "contradictions": ["描述与现有 Wiki 内容的任何矛盾，或空列表"],
-  "log_entry": "## [{today}] ingest | <标题>\\n\\n摄入源文档。关键主张: ..."
-}}
-
-重要提示:
-- 来源页、实体页 和 概念页中的每一页都必须包含完整的 YAML frontmatter (标题, 类型, 标签, 来源 等字段)
-- Wiki 链接必须使用目标页面的 **slug/索引名（不含 .md 扩展名）**，而不是标题，不一致时使用 slug/索引名
-"""
+        prompt = INGEST_PROMPT.format(
+            proj_name=proj_name,
+            schema=schema,
+            wiki_context=wiki_context if wiki_context else "(Wiki 为空 — 这是第一份源文档)",
+            source_filename=source_filename,
+            source_content=source_content,
+            today=today,
+        )
         print(f"  调用 LLM API...")
         raw = call_llm(prompt, max_tokens=16384, validate_json=True)
         try:

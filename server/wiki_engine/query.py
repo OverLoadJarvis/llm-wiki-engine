@@ -16,6 +16,7 @@ from typing import Any
 
 from storage.db import WikiStorage
 from wiki_engine.constants import SCHEMA_FILE
+from wiki_engine.prompt import QUERY_ANSWER_PROMPT, QUERY_RELEVANT_PAGES_PROMPT
 from wiki_engine.helpers import append_log
 from tools.utils import call_llm
 
@@ -77,20 +78,12 @@ class QueryWorkflow:
             pages_context = f"\n\n### wiki/index.md\n{index_content[:3000]}"
 
         print(f"  从 {len(relevant_pages)} 个相关页面综合回答...")
-        prompt = f"""你正在查询一个企业知识库 Wiki。使用以下 Wiki 页面综合一个详尽的回答。使用 [[PageName]] 语法引用来源。
-
-项目: {proj['name']}
-
-格式规范:
-{schema}
-
-Wiki 页面:
-{pages_context}
-
-问题: {question}
-
-写一个结构良好的 Markdown 回答，包含标题、要点和 [[wikilink]] 引用。在末尾添加 ## 来源 部分，列出你使用的页面。
-"""
+        prompt = QUERY_ANSWER_PROMPT.format(
+            project_name=proj['name'],
+            schema=schema,
+            pages_context=pages_context,
+            question=question,
+        )
         answer = call_llm(prompt, max_tokens=8192)
 
         if save:
@@ -158,10 +151,9 @@ Wiki 页面:
             relevant.insert(0, overview)
 
         if len(relevant) <= 1:
-            prompt = (
-                f"给定以下 wiki 索引：\n\n{index_content}\n\n"
-                f'哪些页面与回答以下问题最相关："{question}"\n\n'
-                f'仅返回一个相对路径的 JSON 数组，例如 ["sources/foo.md", "concepts/Bar.md"]。最多 15 个页面。'
+            prompt = QUERY_RELEVANT_PAGES_PROMPT.format(
+                index_content=index_content,
+                question=question,
             )
             raw = call_llm(prompt, "LLM_MODEL_FAST", "claude-3-5-haiku-latest", max_tokens=5120, validate_json=True)
             raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
