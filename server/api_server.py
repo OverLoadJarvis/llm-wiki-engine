@@ -6,10 +6,12 @@ LLM Wiki Web API — Flask 后端服务 + MCP Server
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -986,170 +988,532 @@ def external_upload():
 
 # ══════════════════════════════════════════════════════════════════════════
 #  MCP Server（内嵌，与 Flask 同进程启动）
+#  工具直调 LLMWikiEngine，不再通过 HTTP 中转
 # ══════════════════════════════════════════════════════════════════════════
 
-API_BASE = os.environ.get("LLM_WIKI_MCP_API", "http://localhost:5000/api")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8081"))
 
 mcp = FastMCP("llm-wiki-engine")
 
 
-def _mcp_request(method: str, path: str, **kwargs) -> dict[str, Any] | bytes:
-    """MCP 工具调用本地 Flask API。"""
-    url = f"{API_BASE}{path}"
+def _mcp_engine():
+    """创建 MCP 工具专用的引擎实例。"""
+    return LLMWikiEngine(str(DB_PATH))
+
+
+def _mcp_db():
+    """创建 MCP 工具专用的数据库实例。"""
+    return WikiStorage(str(DB_PATH))
+
+
+# ── 项目生命周期 ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_projects() -> dict:
+    """列出所有项目，返回每个项目的 ID、名称、状态（unbuilt/building/completed）和统计信息。"""
+    db = _mcp_db()
     try:
-        resp = requests.request(method, url, timeout=300, **kwargs)
-        resp.raise_for_status()
-        ct = resp.headers.get("content-type", "")
-        if "application/json" in ct:
-            return resp.json()
-        return resp.content
-    except Exception as e:
-        raise RuntimeError(f"API 错误: {e}")
+        projects = db.list_projects()
+        return {"projects": projects, "total": len(projects)}
+    finally:
+        db.close()
 
 
 @mcp.tool()
-def list_projects() -> str:
-    """列出所有项目，返回每个项目的 ID、名称、状态（unbuilt/building/completed）。"""
-    projects = _mcp_request("GET", "/projects")
-    if not projects:
-        return "暂无项目"
-    lines = [f"共 {len(projects)} 个项目:"]
-    for p in projects:
-        state = p.get("state", "unknown")
-        lines.append(f"  #{p['id']:>3}  {p['name']:<20}  [{state}]")
-    return "\n".join(lines)
-
-
-@mcp.tool()
-def get_project_state(project_id: int) -> str:
-    """查看指定项目的完整状态和详细信息。"""
-    project = _mcp_request("GET", f"/projects/{project_id}")
-    return json.dumps(project, ensure_ascii=False, indent=2, default=str)
-
-
-@mcp.tool()
-def import_project(zip_path: str, build: bool = False) -> str:
-    """上传 ZIP 创建新项目。项目名取自 ZIP 文件名。可选自动触发知识库编译。
+def create_project(name: str = "Untitled", description: str = "") -> dict:
+    """创建一个空项目（不导入文件）。
 
     Args:
-        zip_path: 本地 ZIP 文件的绝对路径
-        build: 导入后是否自动编译知识库
+        name: 项目名称，默认 "Untitled"
+        description: 项目描述，可选
     """
-    zip_path = Path(zip_path)
-    if not zip_path.exists():
-        return f"错误: 文件不存在: {zip_path}"
-    if not zip_path.suffix.lower() == ".zip":
-        return "错误: 仅支持 .zip 格式"
-
-    with open(zip_path, "rb") as f:
-        result = _mcp_request("POST", "/projects/import",
-                              files={"file": (zip_path.name, f, "application/zip")})
-    lines = [
-        "项目导入成功:",
-        f"  ID:     {result['project_id']}",
-        f"  名称:   {result['project_name']}",
-        f"  文件数: {result['file_count']}",
-    ]
-    if build:
-        _mcp_request("POST", f"/projects/{result['project_id']}/build")
-        lines.append("  已触发编译")
-    return "\n".join(lines)
+    db = _mcp_db()
+    try:
+        pid = db.create_project(name, description)
+        return {"project_id": pid, "name": name, "message": "项目创建成功"}
+    finally:
+        db.close()
 
 
 @mcp.tool()
-def upload_files(project_id: int, file_path: str, update: bool = False) -> str:
-    """向已有项目追加文件（单文件或 ZIP）。可选自动增量更新。
+def import_project(
+    zip_url: str = "",
+    content_base64: str = "",
+    file_path: str = "",
+    project_name: str = "",
+) -> dict:
+    """从 ZIP 压缩包创建项目并导入所有文件。支持三种输入方式：
+
+    1. zip_url       — 远程 ZIP 文件 URL（推荐，适用于远程 MCP 客户端）
+    2. content_base64 — ZIP 文件的 Base64 编码内容（需配合 project_name）
+    3. file_path     — 本地 ZIP 文件绝对路径（仅本地部署可用）
+
+    ZIP 包结构（与 export_project 导出产物对应）：
+        raw/   — 原始文件，导入后存入 raw/ 分类，用于后续编译
+        wiki/  — 已编译的 wiki 页面，直接存入 wiki/ 分类
+        graph/ — 知识图谱数据，直接存入 graph/ 分类
+
+    若 wiki/ 或 graph/ 目录存在，导入后项目状态直接设为 completed。
+
+    Args:
+        zip_url: 远程 ZIP 文件的完整 URL（优先使用）
+        content_base64: ZIP 文件的 Base64 编码内容
+        file_path: 本地 ZIP 文件绝对路径
+        project_name: 项目名称（使用 content_base64 时必填；zip_url 时可选，默认取文件名）
+    """
+    import zipfile
+    import tempfile
+    from urllib.parse import urlparse
+
+    # 1. 获取 ZIP 内容到临时文件
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+            if zip_url:
+                parsed = urlparse(zip_url)
+                if parsed.scheme not in ("http", "https"):
+                    return {"error": f"不支持的 URL 协议: {parsed.scheme}，仅支持 http/https"}
+                try:
+                    resp = requests.get(zip_url, timeout=120)
+                    resp.raise_for_status()
+                    tmp.write(resp.content)
+                except requests.RequestException as e:
+                    return {"error": f"下载 ZIP 失败: {e}"}
+                if not project_name:
+                    url_path = parsed.path.rstrip("/")
+                    project_name = Path(url_path).stem if url_path else "imported"
+
+            elif content_base64:
+                if not project_name:
+                    return {"error": "使用 content_base64 时必须提供 project_name"}
+                tmp.write(base64.b64decode(content_base64))
+
+            elif file_path:
+                src = Path(file_path)
+                if not src.exists():
+                    return {"error": f"文件不存在: {file_path}"}
+                if not src.suffix.lower() == ".zip":
+                    return {"error": "仅支持 .zip 格式"}
+                tmp.write(src.read_bytes())
+                if not project_name:
+                    project_name = src.stem
+
+            else:
+                return {"error": "必须提供 zip_url、content_base64 或 file_path 之一"}
+
+            tmp.flush()
+
+        # 2. 创建项目 + 解压 ZIP
+        extract_dir = DEFAULT_UPLOAD_DIR / f"_mcp_import_{uuid.uuid4().hex[:8]}"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                zf.extractall(str(extract_dir))
+
+            # 3. 检测 ZIP 顶层结构
+            children = [p for p in extract_dir.iterdir()]
+            has_raw = any(p.name == "raw" and p.is_dir() for p in children)
+            has_wiki = any(p.name == "wiki" and p.is_dir() for p in children)
+            has_graph = any(p.name == "graph" and p.is_dir() for p in children)
+
+            if not (has_raw or has_wiki or has_graph):
+                return {
+                    "error": "ZIP 包结构不正确",
+                    "expected": "顶层需包含 raw/、wiki/、graph/ 中至少一个目录",
+                    "found": [p.name for p in children if p.is_dir()] or ["(无子目录)"],
+                }
+
+            # 4. 创建项目
+            db = _mcp_db()
+            try:
+                pid = db.create_project(project_name)
+            finally:
+                db.close()
+
+            stats = {"raw_imported": 0, "wiki_imported": 0, "graph_imported": 0, "skipped": 0, "errors": 0}
+
+            if has_raw:
+                engine = _mcp_engine()
+                try:
+                    raw_result = engine.import_raw_files(pid, str(extract_dir / "raw"))
+                    stats["raw_imported"] = raw_result.get("imported", 0)
+                    stats["skipped"] += raw_result.get("skipped", 0)
+                    stats["errors"] += raw_result.get("errors", 0)
+                finally:
+                    engine.close()
+
+            if has_wiki:
+                wiki_dir = extract_dir / "wiki"
+                for f in wiki_dir.rglob("*"):
+                    if f.is_file():
+                        try:
+                            rel = f"wiki/{f.relative_to(wiki_dir).as_posix()}"
+                            content = f.read_bytes()
+                            db2 = _mcp_db()
+                            try:
+                                db2.add_file(pid, rel, content)
+                            finally:
+                                db2.close()
+                            stats["wiki_imported"] += 1
+                        except Exception:
+                            stats["errors"] += 1
+
+            if has_graph:
+                graph_dir = extract_dir / "graph"
+                for f in graph_dir.rglob("*"):
+                    if f.is_file():
+                        try:
+                            rel = f"graph/{f.relative_to(graph_dir).as_posix()}"
+                            content = f.read_bytes()
+                            db2 = _mcp_db()
+                            try:
+                                db2.add_file(pid, rel, content)
+                            finally:
+                                db2.close()
+                            stats["graph_imported"] += 1
+                        except Exception:
+                            stats["errors"] += 1
+
+            # 5. 设置项目状态
+            db2 = _mcp_db()
+            try:
+                if has_wiki or has_graph:
+                    db2.set_project_state(pid, "completed")
+                else:
+                    db2.set_project_state(pid, "unbuilt")
+            finally:
+                db2.close()
+
+            return {
+                "project_id": pid,
+                "project_name": project_name,
+                "raw_imported": stats["raw_imported"],
+                "wiki_imported": stats["wiki_imported"],
+                "graph_imported": stats["graph_imported"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+                "state": "completed" if (has_wiki or has_graph) else "unbuilt",
+            }
+        finally:
+            if extract_dir.exists():
+                shutil.rmtree(str(extract_dir), ignore_errors=True)
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+@mcp.tool()
+def export_project(project_id: int) -> dict:
+    """导出项目为 ZIP 压缩包，返回 Base64 编码的 ZIP 内容。
+
+    包含 raw/、wiki/、graph/ 三个目录的完整文件结构。
+
+    Args:
+        project_id: 项目 ID
+    """
+    import io
+    import zipfile
+
+    db = _mcp_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return {"error": "项目不存在"}
+
+        prefixes = ("raw/", "wiki/", "graph/")
+        all_files = []
+        for prefix in prefixes:
+            files = db.list_files(project_id, prefix)
+            all_files.extend(files)
+
+        if not all_files:
+            return {"error": "项目没有可导出的文件"}
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in all_files:
+                content = db.get_file_content_by_path(project_id, f["relative_path"])
+                zf.writestr(f["relative_path"], content or b"")
+
+        buf.seek(0)
+        zip_base64 = base64.b64encode(buf.read()).decode("ascii")
+
+        return {
+            "project_id": project_id,
+            "project_name": project["name"],
+            "file_count": len(all_files),
+            "content_base64": zip_base64,
+            "format": "zip",
+            "encoding": "base64",
+        }
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def delete_project(project_id: int, confirm: bool = False) -> dict:
+    """删除项目及其所有缓存数据。此操作不可逆。
+
+    Args:
+        project_id: 项目 ID
+        confirm: 必须设置为 true 才能执行删除
+    """
+    if not confirm:
+        return {
+            "error": "删除操作需要确认",
+            "project_id": project_id,
+            "hint": "请设置 confirm=true 后重试",
+        }
+
+    db = _mcp_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return {"error": "项目不存在", "project_id": project_id}
+
+        project_name = project["name"]
+        deleted = db.delete_project(project_id)
+        return {
+            "deleted": deleted,
+            "project_id": project_id,
+            "project_name": project_name,
+        }
+    finally:
+        db.close()
+
+
+# ── 编译与更新 ────────────────────────────────────────────────────────
+
+@mcp.tool()
+def build_knowledge(project_id: int, instruction: str = "", incremental: bool = False) -> dict:
+    """构建或增量更新项目知识库。
+
+    流程：获取 raw 文件 → LLM 摄入生成 wiki 页面 → 构建知识图谱。
+
+    Args:
+        project_id: 项目 ID
+        instruction: 用户自定义的构建指令（可选）。传入后将更新项目的构建指令，
+                     构建时会使用新的指令。不传则保持现有指令不变。
+        incremental: 是否增量更新（默认 false，全量构建）。
+                     设为 true 时仅处理上次构建后新增或变更的 raw 文件，速度更快。
+    """
+    db = _mcp_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return {"error": "项目不存在"}
+        if instruction:
+            db.set_ingest_instruction(project_id, instruction)
+        db.set_project_state(project_id, "building")
+    finally:
+        db.close()
+
+    engine = _mcp_engine()
+    try:
+        if incremental:
+            result = engine.update_knowledge_base(project_id)
+        else:
+            result = engine.build_knowledge_base(project_id)
+        db2 = _mcp_db()
+        try:
+            db2.set_project_state(project_id, "completed")
+        finally:
+            db2.close()
+        return {
+            "project_id": project_id,
+            "state": "completed",
+            "result": result,
+        }
+    except Exception as e:
+        db2 = _mcp_db()
+        try:
+            db2.set_project_state(project_id, "unbuilt")
+        finally:
+            db2.close()
+        return {
+            "project_id": project_id,
+            "state": "unbuilt",
+            "error": str(e),
+        }
+    finally:
+        engine.close()
+
+
+@mcp.tool()
+def upload_files(
+    project_id: int,
+    file_path: str = "",
+    content_base64: str = "",
+    file_name: str = "",
+    auto_update: bool = False,
+) -> dict:
+    """向已有项目追加文件。支持单文件或 ZIP 压缩包。
+
+    支持两种输入方式：
+    1. file_path      — 本地文件绝对路径（仅本地部署可用）
+    2. content_base64 — 文件内容的 Base64 编码（需配合 file_name）
 
     Args:
         project_id: 目标项目 ID
         file_path: 本地文件或 ZIP 包的绝对路径
-        update: 上传后是否自动增量更新
+        content_base64: 文件内容的 Base64 编码
+        file_name: 文件名（使用 content_base64 时必填）
+        auto_update: 上传后是否自动增量更新知识库，默认 false
     """
-    file_path = Path(file_path)
-    if not file_path.exists():
-        return f"错误: 文件不存在: {file_path}"
+    import tempfile
 
-    update_qs = "?update=true" if update else ""
-    mime = "application/zip" if file_path.suffix.lower() == ".zip" else "application/octet-stream"
-    with open(file_path, "rb") as f:
-        result = _mcp_request("POST", f"/projects/{project_id}/upload-file{update_qs}",
-                              files={"file": (file_path.name, f, mime)})
-    lines = [
-        "文件上传完成:",
-        f"  文件名: {result['file_name']}",
-        f"  导入:   {result['import_result'].get('imported', 0)} 个",
-    ]
-    if result.get("update_result"):
-        lines.append(f"  已触发增量更新")
-    return "\n".join(lines)
+    db = _mcp_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return {"error": "项目不存在"}
+    finally:
+        db.close()
 
+    # 获取文件内容
+    tmp_path = None
+    try:
+        if content_base64:
+            if not file_name:
+                return {"error": "使用 content_base64 时必须提供 file_name"}
+            with tempfile.NamedTemporaryFile(suffix=Path(file_name).suffix or ".bin",
+                                             delete=False) as tmp:
+                tmp.write(base64.b64decode(content_base64))
+                tmp.flush()
+                tmp_path = Path(tmp.name)
+                src_path = tmp_path
+                src_name = file_name
+        elif file_path:
+            src_path = Path(file_path)
+            if not src_path.exists():
+                return {"error": f"文件不存在: {file_path}"}
+            src_name = src_path.name
+        else:
+            return {"error": "必须提供 file_path 或 content_base64"}
+
+        is_zip = src_name.lower().endswith(".zip")
+
+        if is_zip:
+            import zipfile
+            extract_dir = DEFAULT_UPLOAD_DIR / f"_mcp_upload_{project_id}"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                with zipfile.ZipFile(str(src_path), "r") as zf:
+                    zf.extractall(str(extract_dir))
+
+                engine = _mcp_engine()
+                try:
+                    import_result = engine.import_raw_files(project_id, str(extract_dir))
+                finally:
+                    engine.close()
+            finally:
+                if extract_dir.exists():
+                    shutil.rmtree(str(extract_dir), ignore_errors=True)
+        else:
+            # 单文件：保存到上传目录后导入
+            dest_dir = DEFAULT_UPLOAD_DIR / project["name"]
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / src_name
+            shutil.copy2(str(src_path), str(dest_path))
+
+            engine = _mcp_engine()
+            try:
+                import_result = engine.import_raw_files(project_id, str(dest_dir))
+            finally:
+                engine.close()
+
+            if dest_path.exists():
+                dest_path.unlink()
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+    result = {
+        "project_id": project_id,
+        "file_name": src_name,
+        "imported": import_result.get("imported", 0),
+        "skipped": import_result.get("skipped", 0),
+        "errors": import_result.get("errors", 0),
+    }
+
+    # 可选：自动增量更新
+    if auto_update:
+        engine = _mcp_engine()
+        try:
+            db2 = _mcp_db()
+            try:
+                db2.set_project_state(project_id, "building")
+            finally:
+                db2.close()
+            update_result = engine.update_knowledge_base(project_id)
+            db2 = _mcp_db()
+            try:
+                db2.set_project_state(project_id, "completed")
+            finally:
+                db2.close()
+            result["update_result"] = update_result
+            result["state"] = "completed"
+        except Exception as e:
+            result["update_error"] = str(e)
+        finally:
+            engine.close()
+
+    return result
+
+
+# ── 查询与检索 ────────────────────────────────────────────────────────
 
 @mcp.tool()
-def update_knowledge(project_id: int) -> str:
-    """触发增量知识库更新。"""
-    result = _mcp_request("POST", f"/projects/{project_id}/update")
-    return f"知识库更新完成:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
-
-
-@mcp.tool()
-def query_knowledge(project_id: int, question: str) -> str:
-    """向知识库提出自然语言问题。
+def query_knowledge(project_id: int, question: str) -> dict:
+    """向已编译的知识库提出自然语言问题，返回 LLM 生成的回答。
 
     Args:
         project_id: 项目 ID
-        question: 要查询的问题
+        question: 要查询的自然语言问题
     """
-    result = _mcp_request("POST", f"/projects/{project_id}/query", json={"question": question})
-    return result.get("answer", str(result))
+    engine = _mcp_engine()
+    try:
+        answer = engine.query(project_id, question)
+        return {
+            "project_id": project_id,
+            "question": question,
+            "answer": answer,
+        }
+    except Exception as e:
+        return {
+            "project_id": project_id,
+            "question": question,
+            "error": str(e),
+        }
+    finally:
+        engine.close()
 
 
 @mcp.tool()
-def health_check(project_id: int) -> str:
-    """检查项目健康状态（缺失实体、孤立节点等）。"""
-    result = _mcp_request("GET", f"/projects/{project_id}/health")
-    return f"健康检查报告:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
-
-
-@mcp.tool()
-def lint_project(project_id: int) -> str:
-    """对项目进行结构/内容/一致性质量检查。"""
-    result = _mcp_request("POST", f"/projects/{project_id}/lint")
-    return f"质量检查完成:\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)}"
-
-
-@mcp.tool()
-def export_project(project_id: int, output_dir: str) -> str:
-    """导出项目 ZIP 到本地。包含 raw/wiki/graph 目录结构。
+def search_files(project_id: int, keyword: str) -> dict:
+    """在项目文件中进行全文搜索，返回匹配的文件路径和内容片段。
 
     Args:
         project_id: 项目 ID
-        output_dir: 输出目录（绝对路径）
+        keyword: 搜索关键词
     """
-    output_dir = Path(output_dir)
-    project = _mcp_request("GET", f"/projects/{project_id}")
-    project_name = project.get("name", f"project-{project_id}")
-    content = _mcp_request("GET", f"/projects/{project_id}/export")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{project_name}.zip"
-    output_path.write_bytes(content)
-    return f"项目导出成功:\n  路径: {output_path}\n  大小: {output_path.stat().st_size:,} bytes"
-
-
-@mcp.tool()
-def delete_project(project_id: int, confirm: bool) -> str:
-    """删除项目及缓存。必须 confirm=true 才执行。
-
-    Args:
-        project_id: 项目 ID
-        confirm: 必须为 true
-    """
-    if not confirm:
-        return f"删除需确认，设置 confirm=true。目标: #{project_id}"
-    project = _mcp_request("GET", f"/projects/{project_id}")
-    project_name = project.get("name", str(project_id))
-    _mcp_request("DELETE", f"/projects/{project_id}")
-    return f"项目已删除: #{project_id} \"{project_name}\""
+    db = _mcp_db()
+    try:
+        project = db.get_project(project_id)
+        if not project:
+            return {"error": "项目不存在"}
+        results = db.search(project_id, keyword)
+        return {
+            "project_id": project_id,
+            "keyword": keyword,
+            "total": len(results),
+            "results": results,
+        }
+    finally:
+        db.close()
 
 
 def _start_mcp_server():

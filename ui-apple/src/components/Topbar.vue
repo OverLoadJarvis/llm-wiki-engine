@@ -48,7 +48,7 @@
           <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
           <line x1="4" y1="4" x2="9" y2="9" />
         </svg>
-        Import ZIP
+        Import Proj
       </button>
     </div>
 
@@ -86,7 +86,7 @@
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        Export
+        Export Proj
       </button>
       <button class="btn btn-outline btn-sm" @click="$emit('show-query')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
