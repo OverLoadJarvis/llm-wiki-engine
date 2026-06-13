@@ -14,6 +14,10 @@ import os
 import requests
 from typing import Optional
 
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
 
 def load_env():
     """Load environment variables from .env file."""
@@ -93,7 +97,7 @@ def chat(
         result = response.json()
         
         # 调试：打印完整响应
-        print(f"\n[DEBUG] Raw response: {result}")
+        logger.debug("\nRaw response: %s", result)
         
         # 检查是否有 error 字段
         if "error" in result:
@@ -119,33 +123,34 @@ def chat(
 def main():
     """命令行交互模式"""
     load_env()
+    setup_logging(level="INFO")
     config = get_llm_config()
     
-    print("=" * 60)
-    print("LLM Simple Chat - 单次 API 调用")
-    print("=" * 60)
-    print(f"URL: {config['url']}")
-    print(f"Model: {config['model']}")
-    print("=" * 60)
-    print("Type 'exit' or 'quit' to exit")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("LLM Simple Chat - 单次 API 调用")
+    logger.info("=" * 60)
+    logger.info("URL: %s", config['url'])
+    logger.info("Model: %s", config['model'])
+    logger.info("=" * 60)
+    logger.info("Type 'exit' or 'quit' to exit")
+    logger.info("=" * 60)
     
     try:
         while True:
             user_input = input("\nYou: ").strip()
             
             if user_input.lower() in ["exit", "quit"]:
-                print("Goodbye!")
+                logger.info("Goodbye!")
                 break
             
             if not user_input:
                 continue
             
             response = chat(user_input)
-            print(f"\nAssistant: {response}")
+            logger.info("\nAssistant: %s", response)
             
     except KeyboardInterrupt:
-        print("\n\nGoodbye!")
+        logger.info("\n\nGoodbye!")
 
 
 if __name__ == "__main__":

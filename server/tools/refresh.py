@@ -28,6 +28,9 @@ from tools.utils import (
     read_file,
     sha256,
 )
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 RAW_DIR = REPO_ROOT / "raw"
 SOURCES_DIR = WIKI_DIR / "sources"
@@ -91,14 +94,14 @@ def refresh_page(wiki_page: Path, raw_path: Path) -> bool:
     """Re-ingest a single source document."""
     try:
         from workflows.ingest import ingest
-        print(f"\n{'='*60}")
-        print(f"  Refreshing: {wiki_page.name}")
-        print(f"  From:       {raw_path}")
-        print(f"{'='*60}")
+        logger.info("\n%s", "=" * 60)
+        logger.info("  Refreshing: %s", wiki_page.name)
+        logger.info("  From:       %s", raw_path)
+        logger.info("%s", "=" * 60)
         ingest(str(raw_path))
         return True
     except Exception as e:
-        print(f"  [ERROR] Failed to refresh {wiki_page.name}: {e}")
+        logger.error("  Failed to refresh %s: %s", wiki_page.name, e)
         return False
 
 
@@ -110,39 +113,41 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Only list stale pages, don't refresh")
     args = parser.parse_args()
 
+    setup_logging(level="INFO")
+
     if args.page:
         # Refresh a single specific page
         wiki_page = WIKI_DIR / args.page
         if not wiki_page.suffix:
             wiki_page = wiki_page.with_suffix(".md")
         if not wiki_page.exists():
-            print(f"Page not found: {wiki_page}")
+            logger.error("Page not found: %s", wiki_page)
             sys.exit(1)
         content = read_file(wiki_page)
         source_file = extract_source_file(content)
         if not source_file:
-            print(f"No source_file found in frontmatter of {wiki_page.name}")
+            logger.error("No source_file found in frontmatter of %s", wiki_page.name)
             sys.exit(1)
         raw_path = REPO_ROOT / source_file
         if not raw_path.exists():
             raw_path = RAW_DIR / source_file
         if not raw_path.exists():
-            print(f"Raw document not found: {source_file}")
+            logger.error("Raw document not found: %s", source_file)
             sys.exit(1)
         stale = [(wiki_page, raw_path)]
     else:
         stale = find_stale_sources(force=args.force)
 
     if not stale:
-        print("All source pages are up to date. Nothing to refresh.")
+        logger.info("All source pages are up to date. Nothing to refresh.")
         return
 
-    print(f"Found {len(stale)} stale source page(s):")
+    logger.info("Found %d stale source page(s):", len(stale))
     for wiki_page, raw_path in stale:
-        print(f"  • {wiki_page.name} ← {raw_path.relative_to(REPO_ROOT)}")
+        logger.info("  * %s <- %s", wiki_page.name, raw_path.relative_to(REPO_ROOT))
 
     if args.dry_run:
-        print("\n[DRY RUN] No changes made.")
+        logger.info("\n[DRY RUN] No changes made.")
         return
 
     # Refresh each stale page
@@ -160,9 +165,9 @@ def main():
 
     save_refresh_cache(cache)
 
-    print(f"\n{'='*60}")
-    print(f"  Refresh complete: {refreshed} updated, {failed} failed")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("  Refresh complete: %d updated, %d failed", refreshed, failed)
+    logger.info("%s", "=" * 60)
 
 
 if __name__ == "__main__":

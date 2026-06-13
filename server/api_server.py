@@ -28,6 +28,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from storage.db import WikiStorage
 from wiki_engine import LLMWikiEngine
 from wiki_engine.constants import DEFAULT_UPLOAD_DIR
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 # 生产环境（Docker）使用构建产物，开发环境使用源码目录
 _WEB_DIST = PROJECT_ROOT.parent / "web-dist"
@@ -659,7 +662,7 @@ def import_zip(project_id):
 
             engine = get_engine()
             try:
-                print(f"Importing files from {extract_dir}")
+                logger.info("Importing files from %s", extract_dir)
                 import_result = engine.import_raw_files(project_id, str(extract_dir))
             finally:
                 engine.close()
@@ -1529,10 +1532,12 @@ if __name__ == "__main__":
 
     api_port = int(os.environ.get("API_PORT", "5000"))
 
-    print("LLM Wiki Web API 启动中...")
-    print(f"数据库: {DB_PATH}")
-    print(f"上传目录: {DEFAULT_UPLOAD_DIR}")
-    print(f"访问地址: http://localhost:{api_port}")
+    setup_logging(level="INFO")
+
+    logger.info("LLM Wiki Web API 启动中...")
+    logger.info("数据库: %s", DB_PATH)
+    logger.info("上传目录: %s", DEFAULT_UPLOAD_DIR)
+    logger.info("访问地址: http://localhost:%d", api_port)
 
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
 
@@ -1540,8 +1545,8 @@ if __name__ == "__main__":
     if not debug:
         t = threading.Thread(target=_start_mcp_server, daemon=True)
         t.start()
-        print(f"MCP 服务: http://localhost:{MCP_PORT}/mcp")
+        logger.info("MCP 服务: http://localhost:%d/mcp", MCP_PORT)
     else:
-        print(f"MCP 服务: 已禁用（debug 模式）")
+        logger.info("MCP 服务: 已禁用（debug 模式）")
 
     app.run(host="0.0.0.0", port=api_port, debug=debug)

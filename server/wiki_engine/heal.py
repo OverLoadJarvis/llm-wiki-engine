@@ -17,6 +17,9 @@ from storage.db import WikiStorage
 from wiki_engine.helpers import append_log
 from tools.utils import call_llm, extract_wikilinks
 from wiki_engine.prompt import HEAL_ENTITY_PROMPT
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class HealWorkflow:
@@ -90,17 +93,17 @@ class HealWorkflow:
                 "errors": [],
             }
 
-        print(f"\n{'='*60}")
-        print(f"  开始图谱自愈: {proj['name']} (id={project_id})")
-        print(f"  缺失实体数: {len(missing_entities)}")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("  开始图谱自愈: %s (id=%d)", proj['name'], project_id)
+        logger.info("  缺失实体数: %d", len(missing_entities))
+        logger.info("%s\n", "=" * 60)
 
         healed = 0
         entities_created: list[str] = []
         errors: list[dict] = []
 
         for entity in missing_entities:
-            print(f"--- 自愈实体: {entity} ---")
+            logger.info("--- 自愈实体: %s ---", entity)
             try:
                 sources = self._search_sources(entity, pages, max_sources)
                 content = self._generate_entity_page(project_id, entity, sources, model)
@@ -114,11 +117,11 @@ class HealWorkflow:
                 entity_entry = f"- [{entity}]({rel_path})"
                 self._update_index(project_id, entity_entry)
 
-                print(f"  -> 已保存: {entity_path}")
+                logger.info("  -> 已保存: %s", entity_path)
 
             except Exception as e:
                 errors.append({"entity": entity, "error": str(e)})
-                print(f"  [ERROR] {entity}: {e}")
+                logger.error("  %s: %s", entity, e)
 
         today = date.today().isoformat()
         append_log(
@@ -127,11 +130,11 @@ class HealWorkflow:
             f"## [{today}] heal | 图谱自愈\n\n补全了 {healed} 个缺失实体页面。",
         )
 
-        print(f"\n{'='*60}")
-        print(f"  自愈完成!")
-        print(f"  补全实体: {healed}/{len(missing_entities)}")
-        print(f"  错误数: {len(errors)}")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("  自愈完成!")
+        logger.info("  补全实体: %d/%d", healed, len(missing_entities))
+        logger.info("  错误数: %d", len(errors))
+        logger.info("%s\n", "=" * 60)
 
         return {
             "project_id": project_id,

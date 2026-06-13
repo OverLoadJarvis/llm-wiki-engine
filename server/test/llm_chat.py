@@ -16,6 +16,10 @@ sys.stdout.reconfigure(encoding='utf-8')
 import argparse
 from typing import Optional, List, Dict
 
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
 try:
     from dotenv import load_dotenv
     load_dotenv(override=True)
@@ -72,7 +76,8 @@ def chat_completion_stream(
     
     full_content = ""
     in_think_block = False
-    print("\nAssistant:", end=" ", flush=True)
+    sys.stdout.write("\nAssistant: ")
+    sys.stdout.flush()
     
     try:
         response = completion(**kwargs)
@@ -84,13 +89,14 @@ def chat_completion_stream(
                     
                     if think:
                         # Show everything including think tags
-                        print(content, end="", flush=True)
+                        sys.stdout.write(content)
+                        sys.stdout.flush()
                     else:
-                        # Filter out <think>...</think> blocks
+                        # Filter out  thinking... response blocks
                         while content:
                             if in_think_block:
                                 # Inside a think block, look for closing tag
-                                end_idx = content.find('</think>')
+                                end_idx = content.find(' response')
                                 if end_idx != -1:
                                     content = content[end_idx + 8:]
                                     in_think_block = False
@@ -99,17 +105,20 @@ def chat_completion_stream(
                                     content = ""
                             else:
                                 # Not in think block, look for opening tag
-                                start_idx = content.find('<think>')
+                                start_idx = content.find(' thinking')
                                 if start_idx != -1:
                                     # Print everything before the tag
-                                    print(content[:start_idx], end="", flush=True)
+                                    sys.stdout.write(content[:start_idx])
+                                    sys.stdout.flush()
                                     content = content[start_idx + 7:]
                                     in_think_block = True
                                 else:
                                     # No think tags, print all
-                                    print(content, end="", flush=True)
+                                    sys.stdout.write(content)
+                                    sys.stdout.flush()
                                     content = ""
-        print()
+        sys.stdout.write("\n")
+        sys.stdout.flush()
         
         # Clean up response for history if not in think mode
         if not think:
@@ -118,7 +127,7 @@ def chat_completion_stream(
         
         return full_content.strip()
     except Exception as e:
-        print(f"\nError during streaming: {e}")
+        logger.error("\nError during streaming: %s", e)
         return ""
 
 
@@ -153,15 +162,16 @@ def chat_completion_sync(
             import re
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
         
-        print(f"\nAssistant: {content.strip()}")
+        logger.info("\nAssistant: %s", content.strip())
         return content.strip()
     except Exception as e:
-        print(f"\nError: {e}")
+        logger.error("\nError: %s", e)
         return ""
 
 
 def main():
     args = parse_args()
+    setup_logging(level="INFO")
     
     # Determine streaming mode
     streaming = args.stream
@@ -169,17 +179,17 @@ def main():
     # Build system prompt with thinking mode instruction
     system_prompt = build_system_prompt(args.system_prompt, args.think)
     
-    print("="*60)
-    print("LLM Chat Interactive CLI")
-    print("="*60)
-    print(f"URL: {args.url}")
-    print(f"Model: {args.model}")
-    print(f"Streaming: {'Enabled' if streaming else 'Disabled'}")
-    print(f"Thinking Mode: {'Enabled' if args.think else 'Disabled'}")
-    print("="*60)
-    print("Type 'exit' or 'quit' to exit")
-    print("Type 'clear' to clear history")
-    print("="*60)
+    logger.info("=" * 60)
+    logger.info("LLM Chat Interactive CLI")
+    logger.info("=" * 60)
+    logger.info("URL: %s", args.url)
+    logger.info("Model: %s", args.model)
+    logger.info("Streaming: %s", 'Enabled' if streaming else 'Disabled')
+    logger.info("Thinking Mode: %s", 'Enabled' if args.think else 'Disabled')
+    logger.info("=" * 60)
+    logger.info("Type 'exit' or 'quit' to exit")
+    logger.info("Type 'clear' to clear history")
+    logger.info("=" * 60)
     
     # Initialize conversation history
     messages = [{"role": "system", "content": system_prompt}]
@@ -189,12 +199,12 @@ def main():
             user_input = input("\nYou: ").strip()
             
             if user_input.lower() in ["exit", "quit"]:
-                print("Goodbye!")
+                logger.info("Goodbye!")
                 break
             
             if user_input.lower() == "clear":
                 messages = [{"role": "system", "content": system_prompt}]
-                print("History cleared!")
+                logger.info("History cleared!")
                 continue
             
             if not user_input:
@@ -214,7 +224,7 @@ def main():
                 messages.append({"role": "assistant", "content": response})
                 
     except KeyboardInterrupt:
-        print("\n\nGoodbye!")
+        logger.info("\n\nGoodbye!")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,9 @@ import json
 import argparse
 
 from wiki_engine.engine import LLMWikiEngine
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def main() -> None:
@@ -78,6 +81,7 @@ def main() -> None:
     p_heal.add_argument("--model", default="claude-3-5-haiku-latest", help="LLM 模型")
 
     args = parser.parse_args()
+    setup_logging(level="INFO")
     engine = LLMWikiEngine(args.db)
 
     try:
@@ -87,36 +91,36 @@ def main() -> None:
                 engine.build_graph(
                     engine.db.get_project_by_name(args.project)["id"]
                 )
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2))
 
         elif args.command == "update":
             result = engine.update_knowledge_base(args.project_id, args.source)
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2))
 
         elif args.command == "query":
             answer = engine.query(args.project_id, args.question, save=args.save)
-            print(answer)
+            logger.info(answer)
 
         elif args.command == "lint":
             report = engine.lint(args.project_id, save=args.save)
-            print(report)
+            logger.info(report)
 
         elif args.command == "health":
             result = engine.health_check(args.project_id)
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2))
 
         elif args.command == "graph":
             result = engine.build_graph(args.project_id)
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2))
 
         elif args.command == "list":
             projects = engine.list_projects()
             for p in projects:
-                print(f"  [{p['id']}] {p['name']} — {p.get('description', '')} ({p.get('updated_at', '')})")
+                logger.info("  [%s] %s — %s (%s)", p['id'], p['name'], p.get('description', ''), p.get('updated_at', ''))
 
         elif args.command == "stats":
             stats = engine.get_project_stats(args.project_id)
-            print(json.dumps(stats, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(stats, ensure_ascii=False, indent=2))
 
         elif args.command == "heal":
             result = engine.heal_graph(
@@ -125,7 +129,7 @@ def main() -> None:
                 max_sources=args.max_sources,
                 model=args.model,
             )
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2))
 
     finally:
         engine.close()

@@ -27,6 +27,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
+
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -526,28 +530,28 @@ def main() -> None:
     db = WikiStorage(db_path)
 
     pid = db.import_project_from_disk("test-project")
-    print(f"Created project #{pid}")
+    logger.info("Created project #%d", pid)
 
     stats = db.project_stats(pid)
-    print(f"  Files: {stats['file_count']}, Size: {stats['total_bytes']} bytes")
-    print(f"  By category: {stats['by_category']}")
+    logger.info("  Files: %d, Size: %d bytes", stats['file_count'], stats['total_bytes'])
+    logger.info("  By category: %s", stats['by_category'])
 
     all_paths = db.list_all_file_paths(pid)
-    print(f"  Sample paths: {all_paths[:5]}...")
+    logger.info("  Sample paths: %s...", all_paths[:5])
 
     wiki_path = all_paths[0]
     text = db.get_file_text_by_path(pid, wiki_path)
     if text:
-        print(f"  First 80 chars of {wiki_path}: {text[:80]}...")
+        logger.info("  First 80 chars of %s: %s...", wiki_path, text[:80])
 
     tree = db.get_directory_tree(pid)
-    print(f"  Top-level dirs in tree: {list(tree.keys())}")
+    logger.info("  Top-level dirs in tree: %s", list(tree.keys()))
 
     results = db.search(pid, "wiki")
-    print(f"  Search 'wiki' → {len(results)} results")
+    logger.info("  Search 'wiki' -> %d results", len(results))
 
     db.close()
-    print("Done.")
+    logger.info("Done.")
 
 
 if __name__ == "__main__":

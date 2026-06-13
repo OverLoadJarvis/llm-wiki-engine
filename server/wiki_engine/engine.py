@@ -33,6 +33,9 @@ from wiki_engine.health import HealthWorkflow
 from wiki_engine.graph import GraphWorkflow
 from wiki_engine.export import ExportManager
 from wiki_engine.heal import HealWorkflow
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _ensure_engine_schema(db: WikiStorage) -> None:
@@ -398,7 +401,7 @@ class LLMWikiEngine:
             构建结果字典
         """
         project_id = self.create_project(project_name, f"从 {source_dir} 导入")
-        print(f"创建项目: {project_name} (id={project_id})")
+        logger.info("创建项目: %s (id=%d)", project_name, project_id)
 
         self.import_raw_files(project_id, source_dir)
         return self.build_knowledge_base(project_id)

@@ -18,6 +18,9 @@ import argparse
 from tqdm import tqdm
 from pathlib import Path
 from markitdown import MarkItDown
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def convert_directory_to_md(
@@ -40,7 +43,7 @@ def convert_directory_to_md(
     files_to_process = [f for f in input_dir.rglob('*') if f.is_file()]
 
     if not files_to_process:
-        print(f"No files found in {input_dir}!")
+        logger.error("No files found in %s!", input_dir)
         return
 
     # Track statistics
@@ -81,20 +84,22 @@ def convert_directory_to_md(
                 tqdm.write(f"Converted: {file_path.relative_to(input_dir)} → {output_path.relative_to(output_dir)}")
         except Exception as e:
             stats["failed"] += 1
-            tqdm.write(f"FAILED: Could not convert '{file_path.name}'. Reason: {e}")
+            logger.error("FAILED: Could not convert '%s'. Reason: %s", file_path.name, e)
 
     # Print summary
-    print("\n" + "=" * 60)
-    print("Conversion Summary:")
-    print(f"  ✓ Converted: {stats['converted']} files")
-    print(f"  ⊘ Skipped:   {stats['skipped']} files")
-    print(f"  ✗ Failed:    {stats['failed']} files")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Conversion Summary:")
+    logger.info("  ✓ Converted: %d files", stats['converted'])
+    logger.info("  ⊘ Skipped:   %d files", stats['skipped'])
+    logger.info("  ✗ Failed:    %d files", stats['failed'])
     if output_dir:
-        print(f"\nOutput directory: {output_dir}")
-    print("=" * 60)
+        logger.info("\nOutput directory: %s", output_dir)
+    logger.info("%s", "=" * 60)
 
 
 def main(args):
+    setup_logging(level="INFO")
+
     # set Paths
     input_path = Path(args.input_dir).resolve()
     
@@ -103,27 +108,27 @@ def main(args):
     else:
         output_path = None
 
-    print("-" * 60)
-    print(f"Input Directory:  {input_path}")
-    print(f"Output Directory: {output_path if output_path else '(same as input)'}")
-    print(f"Delete Source:    {args.delete_source}")
-    print("-" * 60)
+    logger.info("-" * 60)
+    logger.info("Input Directory:  %s", input_path)
+    logger.info("Output Directory: %s", output_path if output_path else "(same as input)")
+    logger.info("Delete Source:    %s", args.delete_source)
+    logger.info("-" * 60)
 
     # validate input directory
     if not input_path.exists():
-        print(f"\nError: Input directory not found at {input_path}")
+        logger.error("\nError: Input directory not found at %s", input_path)
         return
 
     if not input_path.is_dir():
-        print(f"\nError: Input path is not a directory: {input_path}")
+        logger.error("\nError: Input path is not a directory: %s", input_path)
         return
 
     # execute
     try:
         convert_directory_to_md(input_path, output_path, args.delete_source)
-        print("\nConversion process complete.")
+        logger.info("\nConversion process complete.")
     except Exception as e:
-        print(f"\nAn unexpected error occurred during execution: {e}")
+        logger.error("\nAn unexpected error occurred during execution: %s", e)
         raise
 
 

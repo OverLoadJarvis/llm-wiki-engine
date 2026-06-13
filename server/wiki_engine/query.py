@@ -19,6 +19,9 @@ from wiki_engine.constants import SCHEMA_FILE
 from wiki_engine.prompt import QUERY_ANSWER_PROMPT, QUERY_RELEVANT_PAGES_PROMPT
 from wiki_engine.helpers import append_log
 from tools.utils import call_llm
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class QueryWorkflow:
@@ -77,7 +80,7 @@ class QueryWorkflow:
             index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
             pages_context = f"\n\n### wiki/index.md\n{index_content[:3000]}"
 
-        print(f"  从 {len(relevant_pages)} 个相关页面综合回答...")
+        logger.info("  从 %d 个相关页面综合回答...", len(relevant_pages))
         prompt = QUERY_ANSWER_PROMPT.format(
             project_name=proj['name'],
             schema=schema,
@@ -201,4 +204,4 @@ last_updated: {today}
         if "## 综合" in (index_content or ""):
             index_content = index_content.replace("## 综合\n", f"## 综合\n{entry}\n")
             self.db.add_file(project_id, "wiki/index.md", index_content)
-        print(f"  已保存到: {synth_path}")
+        logger.info("  已保存到: %s", synth_path)

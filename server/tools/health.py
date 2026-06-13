@@ -39,6 +39,9 @@ from tools.utils import (
     all_wiki_pages,
     strip_frontmatter,
 )
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 # Minimum content length (excluding frontmatter) to not be considered a stub
 STUB_THRESHOLD_CHARS = 100
@@ -252,15 +255,17 @@ if __name__ == "__main__":
                         help="Output machine-readable JSON instead of markdown")
     args = parser.parse_args()
 
+    setup_logging(level="INFO")
+
     results = run_health()
 
     if args.json:
-        print(json.dumps(results, indent=2))
+        logger.info(json.dumps(results, indent=2))
     else:
         report = format_report(results)
-        print(report)
+        logger.info(report)
 
         if args.save:
             report_path = WIKI_DIR / "health-report.md"
             report_path.write_text(report, encoding="utf-8")
-            print(f"\nSaved: {report_path.relative_to(REPO_ROOT)}")
+            logger.info("\nSaved: %s", report_path.relative_to(REPO_ROOT))

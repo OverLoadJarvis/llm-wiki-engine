@@ -30,6 +30,9 @@ from wiki_engine.helpers import (
 )
 from tools.utils import call_llm, parse_json_from_response, sha256
 from wiki_engine.projects import FileImporter
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class IngestWorkflow:
@@ -97,10 +100,10 @@ class IngestWorkflow:
                 "errors": [],
             }
 
-        print(f"\n{'='*60}")
-        print(f"  开始构建知识库: {proj['name']} (id={project_id})")
-        print(f"  原始文件数: {len(raw_files)}")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("  开始构建知识库: %s (id=%d)", proj['name'], project_id)
+        logger.info("  原始文件数: %d", len(raw_files))
+        logger.info("%s\n", "=" * 60)
 
         ingested = 0
         all_created: list[str] = []
@@ -109,7 +112,7 @@ class IngestWorkflow:
         for f in raw_files:
             rel_path = f["relative_path"]
             filename = Path(rel_path).name
-            print(f"\n--- 摄入: {filename} ---")
+            logger.info("\n--- 摄入: %s ---", filename)
 
             try:
                 md_content = self.db.get_file_text_by_path(project_id, rel_path)
@@ -127,22 +130,22 @@ class IngestWorkflow:
 
             except Exception as e:
                 errors.append({"file": filename, "error": str(e)})
-                print(f"  [ERROR] {filename}: {e}")
+                logger.error("  %s: %s", filename, e)
 
         if not skip_graph and ingested > 0 and graph_builder is not None:
-            print("\n\n--- 构建知识图谱 ---")
+            logger.info("\n\n--- 构建知识图谱 ---")
             try:
                 graph_result = graph_builder.build_graph(project_id)
-                print(f"  图谱: {graph_result.get('n_nodes', 0)} 节点, {graph_result.get('n_edges', 0)} 边")
+                logger.info("  图谱: %d 节点, %d 边", graph_result.get('n_nodes', 0), graph_result.get('n_edges', 0))
             except Exception as e:
-                print(f"  [WARN] 图谱构建失败: {e}")
+                logger.warning("  图谱构建失败: %s", e)
 
-        print(f"\n{'='*60}")
-        print(f"  知识库构建完成!")
-        print(f"  摄入文件: {ingested}/{len(raw_files)}")
-        print(f"  创建页面: {len(all_created)}")
-        print(f"  错误数: {len(errors)}")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("  知识库构建完成!")
+        logger.info("  摄入文件: %d/%d", ingested, len(raw_files))
+        logger.info("  创建页面: %d", len(all_created))
+        logger.info("  错误数: %d", len(errors))
+        logger.info("%s\n", "=" * 60)
 
         return {
             "project_id": project_id,
@@ -198,7 +201,7 @@ class IngestWorkflow:
             today=today,
             ingest_instruction=ingest_instruction,
         )
-        print(f"  调用 LLM API...")
+        logger.info("  调用 LLM API...")
         raw = call_llm(prompt, max_tokens=16384, validate_json=True)
         try:
             data = parse_json_from_response(raw)
@@ -241,17 +244,17 @@ class IngestWorkflow:
 
         contradictions = data.get("contradictions", [])
         if contradictions:
-            print(f"  [WARN] 检测到 {len(contradictions)} 处矛盾:")
+            logger.warning("  检测到 %d 处矛盾:", len(contradictions))
             for c in contradictions:
-                print(f"     - {c}")
+                logger.warning("     - %s", c)
 
         validation = validate_ingest(self.db, project_id, pages_created)
         if validation["broken_links"]:
-            print(f"  [WARN] {len(validation['broken_links'])} 个损坏链接")
+            logger.warning("  %d 个损坏链接", len(validation['broken_links']))
         if validation["unindexed"]:
-            print(f"  [WARN] {len(validation['unindexed'])} 个未索引页面")
+            logger.warning("  %d 个未索引页面", len(validation['unindexed']))
         if not validation["broken_links"] and not validation["unindexed"]:
-            print(f"  验证通过 ✓")
+            logger.info("  验证通过")
 
         return {
             "title": data.get("title", ""),
@@ -283,7 +286,7 @@ class IngestWorkflow:
         """
         if source_dir:
             import_stats = self.file_importer.import_raw_files(project_id, Path(source_dir))
-            print(f"  导入完成: {import_stats}")
+            logger.info("  导入完成: %s", import_stats)
 
         ingested_slugs = get_ingested_slugs(self.db, project_id)
         raw_files = self.db.list_files_by_category(project_id, "raw")
@@ -302,7 +305,7 @@ class IngestWorkflow:
                 "errors": [],
             }
 
-        print(f"\n  发现 {len(new_files)} 个新文件待摄入")
+        logger.info("\n  发现 %d 个新文件待摄入", len(new_files))
         return self._run_ingest_batch(project_id, new_files)
 
     def _run_ingest_batch(
@@ -326,7 +329,7 @@ class IngestWorkflow:
 
         for f in raw_files:
             filename = Path(f["relative_path"]).name
-            print(f"\n--- 摄入: {filename} ---")
+            logger.info("\n--- 摄入: %s ---", filename)
             try:
                 content_bytes = self.db.get_file_content(f["id"])
                 if content_bytes is None:
@@ -334,7 +337,7 @@ class IngestWorkflow:
 
                 md_content: str | None = None
                 if Path(filename).suffix.lower() != ".md":
-                    print(f"  转换 {filename} 为 Markdown...")
+                    logger.info("  转换 %s 为 Markdown...", filename)
                     md_content = self.file_importer.convert_to_md(content_bytes, filename)
                     if md_content is None:
                         errors.append({"file": filename, "error": f"格式不支持: {Path(filename).suffix}"})

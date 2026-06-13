@@ -5,6 +5,10 @@ import hashlib
 from pathlib import Path
 from collections import defaultdict
 
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 try:
@@ -35,7 +39,7 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     try:
         from litellm import completion
     except ImportError:
-        print("Error: litellm not installed. Run: pip install litellm")
+        logger.error("litellm not installed. Run: pip install litellm")
         sys.exit(1)
     
     model = os.getenv(model_env, default_model)
@@ -72,7 +76,7 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
         
         # 最后一次不校验，直接返回
         if not validate_json or attempt == max_retries:
-            print(f"Last attempt, not validating JSON: {content}")
+            logger.debug("Last attempt, not validating JSON: %s", content[:200])
             return content
         
         # JSON 格式校验：复用 parse_json_from_response 处理 markdown 围栏等情况
@@ -87,7 +91,7 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
                 f"你的上次回复：\n{content}\n\n"
                 f"请重新生成，确保输出合法的JSON格式。"
             )
-            print(f"LLM Attempt {attempt}: {current_prompt}")
+            logger.debug("LLM Attempt %d: %s", attempt, current_prompt[:200])
     
     return content  # 兜底，理论上不会走到这里
 
@@ -102,7 +106,7 @@ def write_file(path: Path, content: str, verbose: bool = False):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     if verbose:
-        print(f"  wrote: {path.relative_to(REPO_ROOT)}")
+        logger.debug("  wrote: %s", path.relative_to(REPO_ROOT))
 
 
 def sha256(text: str, truncate: int | None = None) -> str:

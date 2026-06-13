@@ -10,6 +10,9 @@ REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools.utils import call_llm
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 # 构造提示词
 prompt = """你正在维护一个企业知识库 Wiki。处理这份源文档并将其摄入到 Wiki 中。
@@ -246,17 +249,18 @@ date: YYYY-MM-DD
 prompt2 = "你是个有趣的智能助手，告诉我世界第一高峰是什么？"
 
 # 发起调用
-print("=" * 60)
-print("开始调用 call_llm...")
-print(f"API Base: {os.environ['OPENAI_API_BASE']}")
-print(f"Model: {os.environ['LLM_MODEL']}")
-print(f"Prompt 长度: {len(prompt)} 字符")
-print("=" * 60)
+setup_logging(level="INFO")
+logger.info("=" * 60)
+logger.info("开始调用 call_llm...")
+logger.info("API Base: %s", os.environ['OPENAI_API_BASE'])
+logger.info("Model: %s", os.environ['LLM_MODEL'])
+logger.info("Prompt 长度: %d 字符", len(prompt))
+logger.info("=" * 60)
 
 result = call_llm(prompt, max_tokens=16384)
 
-print("\n" + "=" * 60)
-print("模型返回结果:")
-print("=" * 60)
-print(result)
-print("=" * 60)
+logger.info("\n" + "=" * 60)
+logger.info("模型返回结果:")
+logger.info("=" * 60)
+logger.info(result)
+logger.info("=" * 60)

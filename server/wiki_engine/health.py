@@ -19,6 +19,9 @@ from wiki_engine.helpers import append_log
 from wiki_engine.constants import SCHEMA_FILE
 from wiki_engine.prompt import HEALTH_SEMANTIC_CHECK_PROMPT
 from tools.utils import call_llm, extract_wikilinks, strip_frontmatter
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class HealthWorkflow:
@@ -218,17 +221,17 @@ class HealthWorkflow:
             return "知识库为空，无需检查。"
 
         today = date.today().isoformat()
-        print(f"  检查 {len(pages)} 个 wiki 页面...")
+        logger.info("  检查 %d 个 wiki 页面...", len(pages))
 
         orphans = self._find_orphans(project_id, pages)
         broken = self._find_broken_links(project_id, pages)
         missing_entities = self._find_missing_entities(project_id, pages)
         sparse_pages = self._check_link_density(project_id, pages)
 
-        print(f"    孤立页面: {len(orphans)}")
-        print(f"    损坏链接: {len(broken)}")
-        print(f"    缺失实体: {len(missing_entities)}")
-        print(f"    稀疏页面: {len(sparse_pages)}")
+        logger.info("    孤立页面: %d", len(orphans))
+        logger.info("    损坏链接: %d", len(broken))
+        logger.info("    缺失实体: %d", len(missing_entities))
+        logger.info("    稀疏页面: %d", len(sparse_pages))
 
         # 语义检查（LLM） 
         # todo - 仅检查前 20 个页面
@@ -238,7 +241,7 @@ class HealthWorkflow:
             content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
             pages_context += f"\n\n### {p['relative_path']}\n{content[:1500]}"
 
-        print("  运行语义检查 (LLM)...")
+        logger.info("  运行语义检查 (LLM)...")
         prompt = HEALTH_SEMANTIC_CHECK_PROMPT.format(
             sample_count=len(sample),
             pages_context=pages_context,
@@ -294,7 +297,7 @@ class HealthWorkflow:
 
         if save:
             self.db.add_file(project_id, "wiki/lint-report.md", report)
-            print(f"  报告已保存到 wiki/lint-report.md")
+            logger.info("  报告已保存到 wiki/lint-report.md")
 
         append_log(
             self.db,
@@ -351,7 +354,7 @@ class HealthWorkflow:
         """
         # 文件名就是索引名
         existing_stems = {Path(p["relative_path"]).stem.lower() for p in pages}
-        print("existing_stems:", existing_stems)
+        logger.debug("existing_stems: %s", existing_stems)
         broken = []
         for p in pages:
             content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
@@ -361,7 +364,7 @@ class HealthWorkflow:
                     link_stem = Path(link).stem.lower()
                 if link_stem not in existing_stems:
                     broken.append((p["relative_path"], link))
-        print("broken:", broken)
+        logger.debug("broken: %s", broken)
         return broken
 
     def _find_missing_entities(

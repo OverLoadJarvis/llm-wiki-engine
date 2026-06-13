@@ -16,6 +16,9 @@ from wiki_engine.constants import (
     ALL_SUPPORTED_EXTENSIONS,
     CONVERTIBLE_EXTENSIONS,
 )
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ProjectManager:
@@ -118,24 +121,24 @@ class FileImporter:
         if not proj:
             raise ValueError(f"项目不存在: {project_id}")
 
-        print(f"[import_raw_files] 开始扫描目录: {source_dir}")
+        logger.info("[import_raw_files] 开始扫描目录: %s", source_dir)
         stats = {"imported": 0, "skipped": 0, "errors": 0}
 
         # 先收集所有文件，做一次预览
         all_files = [f for f in source_dir.rglob("*") if f.is_file()]
-        print(f"[import_raw_files] 共发现 {len(all_files)} 个文件")
+        logger.info("[import_raw_files] 共发现 %d 个文件", len(all_files))
 
         for filepath in source_dir.rglob("*"):
             if not filepath.is_file():
                 continue
             if filepath.name.startswith("."):
-                print(f"  [跳过] 隐藏文件: {filepath.relative_to(source_dir).as_posix()}")
+                logger.info("  [跳过] 隐藏文件: %s", filepath.relative_to(source_dir).as_posix())
                 stats["skipped"] += 1
                 continue
 
             ext = filepath.suffix.lower()
             if ext not in ALL_SUPPORTED_EXTENSIONS:
-                print(f"  [跳过] 不支持的格式 ({ext}): {filepath.relative_to(source_dir).as_posix()}")
+                logger.info("  [跳过] 不支持的格式 (%s): %s", ext, filepath.relative_to(source_dir).as_posix())
                 stats["skipped"] += 1
                 continue
 
@@ -145,24 +148,24 @@ class FileImporter:
                     md_content = filepath.read_text(encoding="utf-8", errors="replace")
                     rel_path = f"raw/{rel.as_posix()}"
                     self.db.add_file(project_id, rel_path, md_content)
-                    print(f"  [导入] {filepath.relative_to(source_dir).as_posix()} -> {rel_path}")
+                    logger.info("  [导入] %s -> %s", filepath.relative_to(source_dir).as_posix(), rel_path)
                     stats["imported"] += 1
                 else:
                     content_bytes = filepath.read_bytes()
                     md_content = self.convert_to_md(content_bytes, filepath.name)
                     if md_content is None:
-                        print(f"  [跳过] 转换失败: {filepath.relative_to(source_dir).as_posix()} (可能缺少 markitdown 库或格式不支持)")
+                        logger.info("  [跳过] 转换失败: %s (可能缺少 markitdown 库或格式不支持)", filepath.relative_to(source_dir).as_posix())
                         stats["skipped"] += 1
                         continue
                     rel_path = f"raw/{rel.with_suffix('.md').as_posix()}"
                     self.db.add_file(project_id, rel_path, md_content)
-                    print(f"  [导入] {filepath.relative_to(source_dir).as_posix()} -> {rel_path} (已转换为 Markdown)")
+                    logger.info("  [导入] %s -> %s (已转换为 Markdown)", filepath.relative_to(source_dir).as_posix(), rel_path)
                     stats["imported"] += 1
             except Exception as e:
-                print(f"  [错误] {filepath.relative_to(source_dir).as_posix()}: {e}")
+                logger.error("  [错误] %s: %s", filepath.relative_to(source_dir).as_posix(), e)
                 stats["errors"] += 1
 
-        print(f"[import_raw_files] 完成: 导入 {stats['imported']}, 跳过 {stats['skipped']}, 错误 {stats['errors']}")
+        logger.info("[import_raw_files] 完成: 导入 %d, 跳过 %d, 错误 %d", stats['imported'], stats['skipped'], stats['errors'])
         return stats
 
     def add_raw_content(self, project_id: int, filename: str, content: str | bytes) -> int:
@@ -197,26 +200,26 @@ class FileImporter:
         if ext == ".md":
             return content_bytes.decode("utf-8", errors="replace")
         if ext not in CONVERTIBLE_EXTENSIONS:
-            print(f"    [convert_to_md] 不支持转换的格式: {ext}")
+            logger.warning("    [convert_to_md] 不支持转换的格式: %s", ext)
             return None
 
         try:
             from markitdown import MarkItDown
         except ImportError:
-            print(f"    [convert_to_md] markitdown 库未安装，无法转换 {filename}")
+            logger.warning("    [convert_to_md] markitdown 库未安装，无法转换 %s", filename)
             return None
 
-        print(f"    [convert_to_md] 正在转换 {filename} ({len(content_bytes)} bytes)...")
+        logger.info("    [convert_to_md] 正在转换 %s (%d bytes)...", filename, len(content_bytes))
         md = MarkItDown(enable_plugins=False)
         tmp_path = None
         try:
             tmp_path = Path(tempfile.mktemp(suffix=ext))
             tmp_path.write_bytes(content_bytes)
             result = md.convert(str(tmp_path))
-            print(f"    [convert_to_md] 转换成功: {filename} -> {len(result.text_content)} chars")
+            logger.info("    [convert_to_md] 转换成功: %s -> %d chars", filename, len(result.text_content))
             return result.text_content
         except Exception as e:
-            print(f"    [convert_to_md] 转换失败 {filename}: {e}")
+            logger.error("    [convert_to_md] 转换失败 %s: %s", filename, e)
             return None
         finally:
             if tmp_path and tmp_path.exists():

@@ -24,6 +24,10 @@ try:
 except ImportError:
     pass
 
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
 
 DEFAULT_URL = "http://192.168.226.117:1040"
 DEFAULT_MODEL = "qwen3"
@@ -40,10 +44,10 @@ def parse_args():
 
 def test_connection(url: str, model: str, api_key: Optional[str] = None, verbose: bool = False) -> dict:
     """Test basic HTTP connectivity to the LLM service."""
-    print(f"\n{'='*60}")
-    print(f"Test 1: Connection Test")
-    print(f"{'='*60}")
-    print(f"URL: {url}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Test 1: Connection Test")
+    logger.info("%s", "=" * 60)
+    logger.info("URL: %s", url)
 
     try:
         import requests
@@ -52,31 +56,31 @@ def test_connection(url: str, model: str, api_key: Optional[str] = None, verbose
         elapsed = time.time() - start_time
 
         if verbose:
-            print(f"Status Code: {response.status_code}")
-            print(f"Response Time: {elapsed:.3f}s")
-            print(f"Response: {response.text[:500]}")
+            logger.info("Status Code: %s", response.status_code)
+            logger.info("Response Time: %.3fs", elapsed)
+            logger.info("Response: %s", response.text[:500])
 
         if response.status_code == 200:
-            print("✓ Connection successful!")
+            logger.info("✓ Connection successful!")
             return {"success": True, "elapsed": elapsed, "status_code": response.status_code}
         else:
-            print(f"✗ Connection failed with status code: {response.status_code}")
+            logger.error("✗ Connection failed with status code: %s", response.status_code)
             return {"success": False, "error": f"HTTP {response.status_code}"}
     except Exception as e:
-        print(f"✗ Connection failed: {e}")
+        logger.error("✗ Connection failed: %s", e)
         return {"success": False, "error": str(e)}
 
 
 def test_chat_completion(url: str, model: str, api_key: Optional[str] = None, verbose: bool = False) -> dict:
     """Test chat completion with a simple prompt."""
-    print(f"\n{'='*60}")
-    print(f"Test 2: Chat Completion Test")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Test 2: Chat Completion Test")
+    logger.info("%s", "=" * 60)
 
     try:
         from litellm import completion
     except ImportError:
-        print("✗ litellm not installed")
+        logger.error("✗ litellm not installed")
         return {"success": False, "error": "litellm not installed"}
 
     messages = [
@@ -95,8 +99,8 @@ def test_chat_completion(url: str, model: str, api_key: Optional[str] = None, ve
         kwargs["api_key"] = api_key
 
     if verbose:
-        print(f"Model: {model}")
-        print(f"Messages: {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        logger.info("Model: %s", model)
+        logger.info("Messages: %s", json.dumps(messages, ensure_ascii=False, indent=2))
 
     try:
         start_time = time.time()
@@ -104,13 +108,13 @@ def test_chat_completion(url: str, model: str, api_key: Optional[str] = None, ve
         elapsed = time.time() - start_time
 
         if verbose:
-            print(f"Response Time: {elapsed:.3f}s")
-            print(f"Full Response: {response}")
+            logger.info("Response Time: %.3fs", elapsed)
+            logger.info("Full Response: %s", response)
 
         content = response.choices[0].message.content
-        print(f"✓ Chat completion successful!")
-        print(f"  Response: {content}")
-        print(f"  Time: {elapsed:.3f}s")
+        logger.info("✓ Chat completion successful!")
+        logger.info("  Response: %s", content)
+        logger.info("  Time: %.3fs", elapsed)
 
         return {
             "success": True,
@@ -124,20 +128,20 @@ def test_chat_completion(url: str, model: str, api_key: Optional[str] = None, ve
             } if hasattr(response, 'usage') and response.usage else None
         }
     except Exception as e:
-        print(f"✗ Chat completion failed: {e}")
+        logger.error("✗ Chat completion failed: %s", e)
         return {"success": False, "error": str(e)}
 
 
 def test_streaming(url: str, model: str, api_key: Optional[str] = None, verbose: bool = False) -> dict:
     """Test streaming chat completion."""
-    print(f"\n{'='*60}")
-    print(f"Test 3: Streaming Test")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Test 3: Streaming Test")
+    logger.info("%s", "=" * 60)
 
     try:
         from litellm import completion
     except ImportError:
-        print("✗ litellm not installed")
+        logger.error("✗ litellm not installed")
         return {"success": False, "error": "litellm not installed"}
 
     messages = [
@@ -156,8 +160,8 @@ def test_streaming(url: str, model: str, api_key: Optional[str] = None, verbose:
         kwargs["api_key"] = api_key
 
     if verbose:
-        print(f"Model: {model}")
-        print(f"Messages: {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        logger.info("Model: %s", model)
+        logger.info("Messages: %s", json.dumps(messages, ensure_ascii=False, indent=2))
 
     try:
         start_time = time.time()
@@ -172,17 +176,19 @@ def test_streaming(url: str, model: str, api_key: Optional[str] = None, verbose:
                     content = chunk.choices[0].delta.content or ""
                     full_content += content
                     if verbose:
-                        print(f"  Chunk {chunk_count}: {content}", end="", flush=True)
+                        sys.stdout.write(f"  Chunk {chunk_count}: {content}")
+                        sys.stdout.flush()
 
         elapsed = time.time() - start_time
 
         if verbose:
-            print()
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
-        print(f"✓ Streaming successful!")
-        print(f"  Chunks received: {chunk_count}")
-        print(f"  Full response: {full_content}")
-        print(f"  Time: {elapsed:.3f}s")
+        logger.info("✓ Streaming successful!")
+        logger.info("  Chunks received: %d", chunk_count)
+        logger.info("  Full response: %s", full_content)
+        logger.info("  Time: %.3fs", elapsed)
 
         return {
             "success": True,
@@ -191,20 +197,20 @@ def test_streaming(url: str, model: str, api_key: Optional[str] = None, verbose:
             "response": full_content
         }
     except Exception as e:
-        print(f"✗ Streaming failed: {e}")
+        logger.error("✗ Streaming failed: %s", e)
         return {"success": False, "error": str(e)}
 
 
 def test_embedding(url: str, model: str, api_key: Optional[str] = None, verbose: bool = False) -> dict:
     """Test embedding generation."""
-    print(f"\n{'='*60}")
-    print(f"Test 4: Embedding Test")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Test 4: Embedding Test")
+    logger.info("%s", "=" * 60)
 
     try:
         from litellm import embedding
     except ImportError:
-        print("✗ litellm not installed, skipping embedding test")
+        logger.error("✗ litellm not installed, skipping embedding test")
         return {"success": False, "error": "litellm not installed"}
 
     kwargs = {
@@ -217,7 +223,7 @@ def test_embedding(url: str, model: str, api_key: Optional[str] = None, verbose:
         kwargs["api_key"] = api_key
 
     if verbose:
-        print(f"Model: {model}")
+        logger.info("Model: %s", model)
 
     try:
         start_time = time.time()
@@ -225,15 +231,15 @@ def test_embedding(url: str, model: str, api_key: Optional[str] = None, verbose:
         elapsed = time.time() - start_time
 
         if verbose:
-            print(f"Response Time: {elapsed:.3f}s")
-            print(f"Full Response: {response}")
+            logger.info("Response Time: %.3fs", elapsed)
+            logger.info("Full Response: %s", response)
 
         embedding_data = response.data[0].get("embedding", []) if hasattr(response, 'data') and response.data else []
         dimensions = len(embedding_data)
 
-        print(f"✓ Embedding successful!")
-        print(f"  Dimensions: {dimensions}")
-        print(f"  Time: {elapsed:.3f}s")
+        logger.info("✓ Embedding successful!")
+        logger.info("  Dimensions: %d", dimensions)
+        logger.info("  Time: %.3fs", elapsed)
 
         return {
             "success": True,
@@ -242,21 +248,23 @@ def test_embedding(url: str, model: str, api_key: Optional[str] = None, verbose:
         }
     except Exception as e:
         if "404" in str(e):
-            print("~ Embedding endpoint not available on this server (404)")
+            logger.warning("~ Embedding endpoint not available on this server (404)")
             return {"success": None, "error": "Embedding endpoint not available (404)"}
-        print(f"✗ Embedding failed: {e}")
+        logger.error("✗ Embedding failed: %s", e)
         return {"success": False, "error": str(e)}
 
 
 def main():
     args = parse_args()
 
-    print("\n" + "="*60)
-    print("LLM Service Connection Test")
-    print("="*60)
-    print(f"Target: {args.url}")
-    print(f"Model: {args.model}")
-    print(f"Verbose: {args.verbose}")
+    setup_logging(level="INFO")
+
+    logger.info("\n" + "=" * 60)
+    logger.info("LLM Service Connection Test")
+    logger.info("=" * 60)
+    logger.info("Target: %s", args.url)
+    logger.info("Model: %s", args.model)
+    logger.info("Verbose: %s", args.verbose)
 
     results = {}
 
@@ -273,16 +281,16 @@ def main():
         result4 = test_embedding(args.url, args.model, args.api_key, args.verbose)
         results["embedding"] = result4
 
-    print(f"\n{'='*60}")
-    print("Summary")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Summary")
+    logger.info("%s", "=" * 60)
 
     passed = sum(1 for r in results.values() if r.get("success") is True)
     skipped = sum(1 for r in results.values() if r.get("success") is None)
     failed = sum(1 for r in results.values() if r.get("success") is False)
     total = len(results)
 
-    print(f"Tests passed: {passed}/{total} ({skipped} skipped)")
+    logger.info("Tests passed: %d/%d (%d skipped)", passed, total, skipped)
 
     for test_name, result in results.items():
         success = result.get("success")
@@ -292,20 +300,20 @@ def main():
             status = "~ SKIP"
         else:
             status = "✗ FAIL"
-        print(f"  {test_name}: {status}")
+        logger.info("  %s: %s", test_name, status)
         if success is False and args.verbose:
-            print(f"    Error: {result.get('error')}")
+            logger.info("    Error: %s", result.get('error'))
         elif success is None:
-            print(f"    Note: {result.get('error')}")
+            logger.info("    Note: %s", result.get('error'))
 
     if failed == 0:
         if skipped > 0:
-            print(f"\n✓ All critical tests passed ({skipped} optional test(s) skipped)!")
+            logger.info("\n✓ All critical tests passed (%d optional test(s) skipped)!", skipped)
         else:
-            print("\n✓ All tests passed!")
+            logger.info("\n✓ All tests passed!")
         return 0
     else:
-        print("\n✗ Some tests failed!")
+        logger.error("\n✗ Some tests failed!")
         return 1
 
 

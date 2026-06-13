@@ -31,6 +31,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
 REPO_ROOT = Path(__file__).parent.parent
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "raw" / "papers"
 
@@ -69,19 +73,19 @@ def convert_arxiv(arxiv_id: str, output: Path) -> Path:
     """Convert arXiv paper using arxiv2md (structured source, not PDF)."""
     pip_name = "arxiv2markdown"
     if not check_dependency("arxiv2md", pip_name):
-        print(f"Error: arxiv2md not installed.\n{install_hint(pip_name)}")
+        logger.error("arxiv2md not installed.\n%s", install_hint(pip_name))
         sys.exit(1)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["arxiv2md", arxiv_id, "-o", str(output)]
-    print(f"  Running: {' '.join(cmd)}")
+    logger.info("  Running: %s", ' '.join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error: arxiv2md failed:\n{result.stderr}")
+        logger.error("arxiv2md failed:\n%s", result.stderr)
         sys.exit(1)
 
-    print(f"  ✓ Converted arXiv {arxiv_id} → {output.relative_to(REPO_ROOT)}")
+    logger.info("  Converted arXiv %s -> %s", arxiv_id, output.relative_to(REPO_ROOT))
     return output
 
 
@@ -91,24 +95,24 @@ def convert_marker(pdf_path: Path, output: Path) -> Path:
     """Convert PDF using marker (high-fidelity, handles complex layouts)."""
     pip_name = "marker-pdf"
     if not check_dependency("marker", pip_name):
-        print(f"Error: marker not installed.\n{install_hint(pip_name)}")
+        logger.error("marker not installed.\n%s", install_hint(pip_name))
         sys.exit(1)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     # marker outputs to a directory; we move the result to the target path
     tmp_dir = output.parent / f".marker_tmp_{output.stem}"
     cmd = ["marker_single", str(pdf_path), "--output_dir", str(tmp_dir)]
-    print(f"  Running: {' '.join(cmd)}")
+    logger.info("  Running: %s", ' '.join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error: marker failed:\n{result.stderr}")
+        logger.error("marker failed:\n%s", result.stderr)
         sys.exit(1)
 
     # marker creates <pdf_name>/<pdf_name>.md inside output_dir
     md_files = list(tmp_dir.rglob("*.md"))
     if not md_files:
-        print("Error: marker produced no markdown output.")
+        logger.error("marker produced no markdown output.")
         sys.exit(1)
 
     # Move first .md to target, clean up
@@ -116,7 +120,7 @@ def convert_marker(pdf_path: Path, output: Path) -> Path:
     import shutil
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    print(f"  ✓ Converted {pdf_path.name} → {output.relative_to(REPO_ROOT)}")
+    logger.info("  Converted %s -> %s", pdf_path.name, output.relative_to(REPO_ROOT))
     return output
 
 
@@ -126,7 +130,7 @@ def convert_pymupdf(pdf_path: Path, output: Path) -> Path:
     """Convert PDF using pymupdf4llm (fast, lightweight, native-text PDFs)."""
     pip_name = "pymupdf4llm"
     if not check_dependency("pymupdf4llm", pip_name):
-        print(f"Error: pymupdf4llm not installed.\n{install_hint(pip_name)}")
+        logger.error("pymupdf4llm not installed.\n%s", install_hint(pip_name))
         sys.exit(1)
 
     import pymupdf4llm
@@ -135,7 +139,7 @@ def convert_pymupdf(pdf_path: Path, output: Path) -> Path:
     md_text = pymupdf4llm.to_markdown(str(pdf_path))
     output.write_text(md_text, encoding="utf-8")
 
-    print(f"  ✓ Converted {pdf_path.name} → {output.relative_to(REPO_ROOT)}")
+    logger.info("  Converted %s -> %s", pdf_path.name, output.relative_to(REPO_ROOT))
     return output
 
 
@@ -185,13 +189,15 @@ def main():
     )
     args = parser.parse_args()
 
+    setup_logging(level="INFO")
+
     arxiv_id = extract_arxiv_id(args.input)
     output = resolve_output(args.input, arxiv_id, args.output)
     backend = args.backend
 
-    print(f"\npdf2md — LLM Wiki Agent")
-    print(f"  Input:   {args.input}")
-    print(f"  Output:  {output.relative_to(REPO_ROOT)}")
+    logger.info("\npdf2md — LLM Wiki Agent")
+    logger.info("  Input:   %s", args.input)
+    logger.info("  Output:  %s", output.relative_to(REPO_ROOT))
 
     # ── Auto-select backend ──
     if backend == "auto":
@@ -202,32 +208,32 @@ def main():
         elif check_dependency("pymupdf4llm"):
             backend = "pymupdf4llm"
         else:
-            print("\nError: No conversion backend found.")
-            print("Install one of:")
-            print("  pip install arxiv2markdown   # for arXiv papers")
-            print("  pip install marker-pdf       # for complex PDFs")
-            print("  pip install pymupdf4llm      # for simple/fast PDF conversion")
+            logger.error("\nNo conversion backend found.")
+            logger.error("Install one of:")
+            logger.error("  pip install arxiv2markdown   # for arXiv papers")
+            logger.error("  pip install marker-pdf       # for complex PDFs")
+            logger.error("  pip install pymupdf4llm      # for simple/fast PDF conversion")
             sys.exit(1)
 
-    print(f"  Backend: {backend}")
-    print()
+    logger.info("  Backend: %s", backend)
+    logger.info("")
 
     # ── Dispatch ──
     if backend == "arxiv2md":
         if not arxiv_id:
-            print("Error: arxiv2md backend requires an arXiv ID or URL.")
+            logger.error("Error: arxiv2md backend requires an arXiv ID or URL.")
             sys.exit(1)
         convert_arxiv(arxiv_id, output)
     else:
         pdf_path = Path(args.input)
         if not pdf_path.exists():
-            print(f"Error: file not found: {args.input}")
+            logger.error("Error: file not found: %s", args.input)
             sys.exit(1)
         BACKENDS[backend](pdf_path, output)
 
-    print(f"\nDone. Now ingest with:")
-    print(f"  python tools/ingest.py {output.relative_to(REPO_ROOT)}")
-    print(f"  — or in your agent: ingest {output.relative_to(REPO_ROOT)}")
+    logger.info("\nDone. Now ingest with:")
+    logger.info("  python tools/ingest.py %s", output.relative_to(REPO_ROOT))
+    logger.info("  — or in your agent: ingest %s", output.relative_to(REPO_ROOT))
 
 
 if __name__ == "__main__":

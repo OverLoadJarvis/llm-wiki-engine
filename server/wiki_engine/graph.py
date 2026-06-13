@@ -29,6 +29,9 @@ from wiki_engine.constants import (
 )
 from wiki_engine.prompt import GRAPH_INFER_EDGE_PROMPT
 from tools.utils import call_llm, extract_wikilinks, sha256
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class GraphWorkflow:
@@ -401,7 +404,7 @@ class GraphWorkflow:
 
         if clean:
             self.clear_graph_cache(project_id)
-            print("  cache cleared — rebuilding from scratch")
+            logger.info("  cache cleared — rebuilding from scratch")
 
         checkpoint_edges, completed_ids = self.load_checkpoint_edges(project_id)
         if not resume:
@@ -439,13 +442,13 @@ class GraphWorkflow:
                 changed_pages.append(p)
 
         if not changed_pages:
-            print("  no changed pages — skipping semantic inference")
+            logger.info("  no changed pages — skipping semantic inference")
             return new_edges
 
         total_pages = len(changed_pages)
         already_done = len(completed_ids)
         grand_total = total_pages + already_done
-        print(f"  inferring relationships for {total_pages} remaining pages (of {grand_total} total)...")
+        logger.info("  inferring relationships for %d remaining pages (of %d total)...", total_pages, grand_total)
 
         node_list = "\n".join(
             f"- {p['relative_path'].replace('wiki/', '').replace('.md', '')} ({p.get('type', 'unknown')})"
@@ -459,7 +462,7 @@ class GraphWorkflow:
             full_content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
             src = p["relative_path"].replace("wiki/", "").replace(".md", "")
             global_idx = already_done + i
-            print(f"    [{global_idx}/{grand_total}] Inferring for '{src}'... ", end="", flush=True)
+            logger.info("    [%d/%d] Inferring for '%s'...", global_idx, grand_total, src)
 
             prompt = GRAPH_INFER_EDGE_PROMPT.format(
                 src=src,
@@ -474,7 +477,7 @@ class GraphWorkflow:
                 raw = raw.strip()
 
                 if not raw:
-                    print("-> [WARN] Empty response received")
+                    logger.warning("-> Empty response received")
                     continue
 
                 raw = raw.replace('\r\n', '\n').replace('\r', '\n')
@@ -488,21 +491,21 @@ class GraphWorkflow:
 
                 raw = raw.strip()
                 if not raw:
-                    print("-> [WARN] No JSON found in response")
+                    logger.warning("-> No JSON found in response")
                     continue
 
                 try:
                     inferred = json.loads(raw)
                 except json.JSONDecodeError as e:
-                    print(f"-> [WARN] JSON decode failed: {str(e)[:60]}")
-                    print(f"   Attempting to fix invalid JSON...")
+                    logger.warning("-> JSON decode failed: %s", str(e)[:60])
+                    logger.warning("   Attempting to fix invalid JSON...")
                     raw = re.sub(r',\s*([}\]])', r'\1', raw)
                     raw = re.sub(r'([{,])\s*([^{}\[\],:\s]+)\s*:', r'\1 "\2":', raw)
                     try:
                         inferred = json.loads(raw)
-                        print("   -> Fixed JSON successfully")
+                        logger.info("   -> Fixed JSON successfully")
                     except json.JSONDecodeError as e2:
-                        print(f"   -> Fix failed: {str(e2)[:60]}")
+                        logger.warning("   -> Fix failed: %s", str(e2)[:60])
                         continue
 
                 if isinstance(inferred, dict):
@@ -540,12 +543,12 @@ class GraphWorkflow:
                     "edges": valid_rels,
                 }
                 self.append_checkpoint_edge(project_id, src, page_edges)
-                print(f"-> Found {len(page_edges)} edges.")
+                logger.info("-> Found %d edges.", len(page_edges))
             except (json.JSONDecodeError, TypeError, ValueError) as jde:
-                print(f"-> [WARN] Invalid JSON: {str(jde)[:60]}")
+                logger.warning("-> Invalid JSON: %s", str(jde)[:60])
             except Exception as e:
                 err_msg = str(e).replace('\n', ' ')[:80]
-                print(f"-> [ERROR] {err_msg}")
+                logger.error("-> %s", err_msg)
 
         self.save_graph_cache(project_id, cache)
         return new_edges
@@ -1239,22 +1242,22 @@ applyFilters();
 
         # Pass 2: 语义推理
         if infer:
-            print("  Pass 2: inferring semantic relationships...")
+            logger.info("  Pass 2: inferring semantic relationships...")
             inferred = self.build_inferred_edges(
                 project_id, pages, edges, infer=True, clean=clean, resume=resume
             )
             edges.extend(inferred)
             n_inf_new = len([e for e in inferred if e["type"] in ("INFERRED", "AMBIGUOUS")])
-            print(f"  → {n_inf_new} inferred edges")
+            logger.info("  -> %d inferred edges", n_inf_new)
 
         # 去重
         before_dedup = len(edges)
         edges = self.deduplicate_edges(edges)
         if before_dedup != len(edges):
-            print(f"  dedup: {before_dedup} → {len(edges)} edges")
+            logger.info("  dedup: %d -> %d edges", before_dedup, len(edges))
 
         # 社区检测
-        print("  Running Louvain community detection...")
+        logger.info("  Running Louvain community detection...")
         communities = self.detect_communities(nodes, edges)
         for node in nodes:
             comm_id = communities.get(node["id"], -1)
@@ -1288,16 +1291,16 @@ applyFilters();
 
         n_ext = len([e for e in edges if e['type'] == 'EXTRACTED'])
         n_inf = len([e for e in edges if e['type'] in ('INFERRED', 'AMBIGUOUS')])
-        print(f"  saved: graph/graph.json ({len(nodes)} nodes, {len(edges)} edges)")
-        print(f"  saved: graph/graph.html")
-        print(f"  ({n_ext} extracted, {n_inf} inferred)")
+        logger.info("  saved: graph/graph.json (%d nodes, %d edges)", len(nodes), len(edges))
+        logger.info("  saved: graph/graph.html")
+        logger.info("  (%d extracted, %d inferred)", n_ext, n_inf)
 
         # 幽灵枢纽
         phantom_hubs = []
         if report:
             phantom_hubs = self.find_phantom_hubs(project_id, pages)
             if phantom_hubs:
-                print(f"  phantom hubs: {len(phantom_hubs)} pages referenced but not created")
+                logger.info("  phantom hubs: %d pages referenced but not created", len(phantom_hubs))
 
         # 报告
         report_text = ""
@@ -1310,7 +1313,7 @@ applyFilters();
                     report_text += f"- **{ph['name']}** (referenced by {ph['ref_count']} pages: {', '.join(ph['referenced_by'][:3])})\n"
                 report_text += "\n"
             self.db.add_file(project_id, "graph/graph-report.md", report_text)
-            print(f"  saved: graph/graph-report.md")
+            logger.info("  saved: graph/graph-report.md")
 
         return {
             "n_nodes": len(nodes),
