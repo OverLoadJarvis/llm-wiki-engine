@@ -185,6 +185,9 @@ class IngestWorkflow:
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
         proj = self.db.get_project(project_id)
         proj_name = proj["name"] if proj else "unknown"
+        ingest_instruction = self.db.get_ingest_instruction(project_id)
+        if not ingest_instruction.strip():
+            ingest_instruction = "（无特殊指令，按默认规范处理）"
 
         prompt = INGEST_PROMPT.format(
             proj_name=proj_name,
@@ -193,6 +196,7 @@ class IngestWorkflow:
             source_filename=source_filename,
             source_content=source_content,
             today=today,
+            ingest_instruction=ingest_instruction,
         )
         print(f"  调用 LLM API...")
         raw = call_llm(prompt, max_tokens=16384, validate_json=True)

@@ -104,6 +104,22 @@
         </div>
       </div>
     </div>
+
+    <!-- Instruction Modal -->
+    <div v-if="active === 'instruction'" class="modal-overlay" @click.self="$emit('close')">
+      <div class="modal" style="width:520px;">
+        <h3>Build Instructions</h3>
+        <p class="modal-desc">
+          These instructions will be appended to the prompt when building or updating the knowledge base.
+          The LLM will use them to guide the ingestion process.
+        </p>
+        <textarea class="instruction-textarea" v-model="instructionText" placeholder="e.g. Focus on technical details, extract all API endpoints, ignore marketing content..."></textarea>
+        <div class="modal-actions">
+          <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
+          <button class="btn" @click="doSaveInstruction">Save</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -120,7 +136,9 @@ const props = defineProps({
   importApi: { type: Function, required: true },
   importZipApi: { type: Function, required: true },
   importProjectApi: { type: Function, required: true },
-  lintApi: { type: Function, required: true }
+  lintApi: { type: Function, required: true },
+  instructionApi: { type: Function, required: true },
+  setInstructionApi: { type: Function, required: true }
 })
 
 const emit = defineEmits(['close', 'project-created', 'project-deleted', 'files-imported', 'project-imported'])
@@ -252,6 +270,30 @@ async function doImportProject() {
     alert(`Import project failed: ${err.message}`)
   }
 }
+
+// ── Instruction ───────────────────────────────────────────────
+const instructionText = ref('')
+
+watch(() => props.active, async (val) => {
+  if (val === 'instruction') {
+    instructionText.value = ''
+    try {
+      const result = await props.instructionApi()
+      instructionText.value = result.instruction || ''
+    } catch (err) {
+      console.error('Failed to load instruction:', err)
+    }
+  }
+})
+
+async function doSaveInstruction() {
+  try {
+    await props.setInstructionApi(instructionText.value)
+    emit('close')
+  } catch (err) {
+    alert(`Save failed: ${err.message}`)
+  }
+}
 </script>
 
 <style scoped>
@@ -335,5 +377,25 @@ async function doImportProject() {
 .lint-result-area :deep(ul) {
   padding-left: 20px;
   margin: 4px 0;
+}
+
+.instruction-textarea {
+  width: 100%;
+  height: 200px;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.instruction-textarea:focus {
+  border-color: var(--accent);
 }
 </style>

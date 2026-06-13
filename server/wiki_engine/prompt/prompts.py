@@ -18,6 +18,9 @@ INGEST_PROMPT = """\
 
 当前日期: {today}
 
+用户构建指令:
+{ingest_instruction}
+
 只返回一个有效的 JSON 对象(不要 markdown 代码围栏，不要 JSON 之外的任何文字):
 {{
   "title": "源文档的人类可读标题，和页面中的title一致",
@@ -38,7 +41,7 @@ INGEST_PROMPT = """\
 重要提示:
 - 来源页、实体页 和 概念页中的每一页都必须包含完整的 YAML frontmatter (title, slug, type, tags, sources 等字段)
 - WikiLink链接必须使用目标页面的 **slug（不含 .md 扩展名）**，而不是标题，不一致时使用 slug
-
+- 用户构建指令是用户自定义的，用于指导wiki生成的内容，务必重视参考。
 """
 
 # ── 知识库查询 - 综合回答生成 ─────────────────────────────────────

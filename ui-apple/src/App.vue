@@ -14,6 +14,7 @@
       @lint-project="openModal('lint')"
       @export-project="exportProject"
       @show-query="openModal('query')"
+      @set-instruction="openModal('instruction')"
     />
 
     <!-- Main Content Area -->
@@ -120,6 +121,8 @@
       :import-zip-api="importZipApi"
       :import-project-api="importProjectApi"
       :lint-api="lintProjectApi"
+      :instruction-api="getInstructionApi"
+      :set-instruction-api="setInstructionApi"
       @close="activeModal = ''"
       @project-created="onProjectCreated"
       @project-deleted="onProjectDeleted"
@@ -199,6 +202,17 @@ async function importProjectApi(formData) {
 
 async function lintProjectApi() {
   return api(`/projects/${currentProjectId.value}/lint`, { method: 'POST' })
+}
+
+async function getInstructionApi() {
+  return api(`/projects/${currentProjectId.value}/instruction`)
+}
+
+async function setInstructionApi(instruction) {
+  return api(`/projects/${currentProjectId.value}/instruction`, {
+    method: 'PUT',
+    body: JSON.stringify({ instruction })
+  })
 }
 
 // ── Project Management ────────────────────────────────────────

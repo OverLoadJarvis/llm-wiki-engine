@@ -64,6 +64,9 @@ class WikiStorage:
         if "state" not in cols:
             self.conn.execute("ALTER TABLE projects ADD COLUMN state TEXT NOT NULL DEFAULT 'unbuilt'")
             self.conn.commit()
+        if "ingest_instruction" not in cols:
+            self.conn.execute("ALTER TABLE projects ADD COLUMN ingest_instruction TEXT NOT NULL DEFAULT ''")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -127,6 +130,22 @@ class WikiStorage:
         cur = self.conn.execute(
             "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE id = ?",
             (state, project_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_ingest_instruction(self, project_id: int) -> str:
+        """获取项目的构建指令，可能为空字符串。"""
+        row = self.conn.execute(
+            "SELECT ingest_instruction FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+        return row["ingest_instruction"] if row else ""
+
+    def set_ingest_instruction(self, project_id: int, instruction: str) -> bool:
+        """设置项目的构建指令。"""
+        cur = self.conn.execute(
+            "UPDATE projects SET ingest_instruction = ?, updated_at = datetime('now') WHERE id = ?",
+            (instruction, project_id),
         )
         self.conn.commit()
         return cur.rowcount > 0

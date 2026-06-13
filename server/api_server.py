@@ -172,6 +172,42 @@ def project_stats(project_id):
         db.close()
 
 
+# ── 构建指令 API ──────────────────────────────────────────────────────
+
+@app.route("/api/projects/<int:project_id>/instruction", methods=["GET"])
+def get_instruction(project_id):
+    """获取项目构建指令。
+
+    GET /api/projects/<project_id>/instruction
+    """
+    db = get_db()
+    try:
+        instruction = db.get_ingest_instruction(project_id)
+        return jsonify({"instruction": instruction})
+    finally:
+        db.close()
+
+
+@app.route("/api/projects/<int:project_id>/instruction", methods=["PUT"])
+def set_instruction(project_id):
+    """更新项目构建指令。
+
+    PUT /api/projects/<project_id>/instruction
+    请求体: {"instruction": "..."}
+    """
+    data = request.get_json(silent=True) or {}
+    instruction = data.get("instruction", "")
+
+    db = get_db()
+    try:
+        ok = db.set_ingest_instruction(project_id, instruction)
+        if not ok:
+            return jsonify({"error": "项目不存在"}), 404
+        return jsonify({"instruction": instruction})
+    finally:
+        db.close()
+
+
 # ── 文件树 API ────────────────────────────────────────────────────────
 
 @app.route("/api/projects/<int:project_id>/tree", methods=["GET"])
