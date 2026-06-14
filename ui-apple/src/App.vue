@@ -108,6 +108,7 @@
     <ChatPanel
       :current-project-id="currentProjectId"
       :query-api="queryApi"
+      :open-wiki-link="openWikiLink"
     />
 
     <!-- Modal Group -->

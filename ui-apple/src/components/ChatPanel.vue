@@ -32,7 +32,7 @@
         </div>
 
         <!-- Messages -->
-        <div class="chat-messages" ref="messagesRef">
+        <div class="chat-messages" ref="messagesRef" @click="onMessageClick">
           <div v-if="messages.length === 0" class="chat-welcome">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="12" cy="12" r="3" />
@@ -96,7 +96,8 @@ import { renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
   currentProjectId: { type: [String, Number], default: null },
-  queryApi: { type: Function, required: true }
+  queryApi: { type: Function, required: true },
+  openWikiLink: { type: Function, default: null }
 })
 
 const isOpen = ref(false)
@@ -133,6 +134,15 @@ function autoResize() {
   if (!el) return
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+}
+
+function onMessageClick(e) {
+  const link = e.target.closest('a.wiki-link')
+  if (link && props.openWikiLink) {
+    e.preventDefault()
+    const target = link.getAttribute('data-wiki-link') || link.textContent
+    props.openWikiLink(target)
+  }
 }
 
 async function sendMessage() {
