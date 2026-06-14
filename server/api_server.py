@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from flask_cors import CORS
 from mcp.server.fastmcp import FastMCP
 
@@ -505,18 +505,42 @@ def query_knowledge_base(project_id):
 
     请求体 (JSON):
         - question (str): 用户问题
+        - stream (bool): 是否启用流式输出（默认 false）
 
     响应:
-        200: {"answer": "<LLM 生成的回答>"}
+        非流式 200: {"answer": "<LLM 生成的回答>"}
+        流式 200: text/event-stream (SSE)
     """
     data = request.get_json(force=True)
     question = data.get("question", "")
+    stream = data.get("stream", False)
     engine = get_engine()
-    try:
-        answer = engine.query(project_id, question)
-        return jsonify({"answer": answer})
-    finally:
-        engine.close()
+
+    if stream:
+        def generate():
+            try:
+                for chunk in engine.query_stream(project_id, question):
+                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            finally:
+                engine.close()
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+            }
+        )
+    else:
+        try:
+            answer = engine.query(project_id, question)
+            return jsonify({"answer": answer})
+        finally:
+            engine.close()
 
 
 @app.route("/api/projects/<int:project_id>/health", methods=["GET"])

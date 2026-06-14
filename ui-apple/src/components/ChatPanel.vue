@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- Chat Toggle Button -->
-    <button class="chat-toggle-btn glass" @click="togglePanel" title="Chat with Knowledge Base">
+    <button v-show="!isOpen" class="chat-toggle-btn glass" @click="togglePanel" title="Chat with Knowledge Base">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
@@ -148,17 +148,33 @@ async function sendMessage() {
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight
   })
 
+  let assistantMsg = null
+
   try {
-    const result = await props.queryApi(text)
-    const answer = result.answer || result.response || result.result || JSON.stringify(result)
-    messages.value.push({ role: 'assistant', content: answer })
-  } catch (err) {
-    messages.value.push({ role: 'assistant', content: `Error: ${err.message}` })
-  } finally {
-    isTyping.value = false
-    nextTick(() => {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    await props.queryApi(text, (chunk) => {
+      if (!assistantMsg) {
+        isTyping.value = false
+        messages.value.push({ role: 'assistant', content: chunk })
+        assistantMsg = messages.value[messages.value.length - 1]
+      } else {
+        assistantMsg.content += chunk
+      }
+      nextTick(() => {
+        messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+      })
     })
+
+    if (!assistantMsg) {
+      isTyping.value = false
+      messages.value.push({ role: 'assistant', content: 'No response received.' })
+    }
+  } catch (err) {
+    isTyping.value = false
+    if (assistantMsg) {
+      assistantMsg.content += `\n\n*Error: ${err.message}*`
+    } else {
+      messages.value.push({ role: 'assistant', content: `Error: ${err.message}` })
+    }
   }
 }
 </script>
@@ -363,10 +379,14 @@ async function sendMessage() {
   max-width: 85%;
 }
 
+.chat-message.user {
+  flex-direction: row-reverse;
+}
+
 .chat-message.user .chat-bubble {
   background: var(--accent);
   color: #fff;
-  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 4px;
 }
 
 .chat-message.assistant .chat-bubble {

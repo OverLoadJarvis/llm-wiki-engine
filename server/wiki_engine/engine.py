@@ -246,6 +246,20 @@ class LLMWikiEngine:
         """
         return self._query.query(project_id, question, save=save)
 
+    def query_stream(self, project_id: int, question: str):
+        """流式查询项目知识库。
+
+        与 query() 逻辑相同，但通过生成器逐块 yield LLM 回答。
+
+        Args:
+            project_id: 项目 ID
+            question: 查询问题
+
+        Yields:
+            str: LLM 回答的文本块
+        """
+        yield from self._query.query_stream(project_id, question)
+
     # ── 核心工作流 4: 检查知识库 ────────────────────────────────────
 
     def health_check(self, project_id: int) -> dict[str, Any]:

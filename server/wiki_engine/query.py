@@ -18,7 +18,7 @@ from storage.db import WikiStorage
 from wiki_engine.constants import SCHEMA_FILE
 from wiki_engine.prompt import QUERY_ANSWER_PROMPT, QUERY_RELEVANT_PAGES_PROMPT
 from wiki_engine.helpers import append_log
-from tools.utils import call_llm
+from tools.utils import call_llm, call_llm_stream
 from tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -99,6 +99,61 @@ class QueryWorkflow:
         )
 
         return answer
+
+    def query_stream(self, project_id: int, question: str):
+        """流式查询项目知识库。
+
+        与 query() 逻辑相同，但通过生成器逐块 yield LLM 回答。
+
+        Args:
+            project_id: 项目 ID
+            question: 查询问题
+
+        Yields:
+            str: LLM 回答的文本块
+        """
+        proj = self.db.get_project(project_id)
+        if not proj:
+            raise ValueError(f"项目不存在: {project_id}")
+
+        wiki_files = self.db.list_files(project_id, "wiki/")
+        if not wiki_files:
+            yield "知识库为空。请先使用 build_knowledge_base() 构建知识库。"
+            return
+
+        today = date.today().isoformat()
+        schema = SCHEMA_FILE.read_text(encoding="utf-8")
+
+        relevant_pages = self.find_relevant_pages(project_id, question)
+
+        pages_context = ""
+        for p in relevant_pages:
+            content = self.db.get_file_text_by_path(project_id, p["relative_path"])
+            if content:
+                pages_context += f"\n\n### {p['relative_path']}\n{content[:3000]}"
+
+        if not pages_context:
+            index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+            pages_context = f"\n\n### wiki/index.md\n{index_content[:3000]}"
+
+        logger.info("  从 %d 个相关页面流式综合回答...", len(relevant_pages))
+        prompt = QUERY_ANSWER_PROMPT.format(
+            project_name=proj['name'],
+            schema=schema,
+            pages_context=pages_context,
+            question=question,
+        )
+
+        full_answer = ""
+        for chunk in call_llm_stream(prompt, max_tokens=8192):
+            full_answer += chunk
+            yield chunk
+
+        append_log(
+            self.db,
+            project_id,
+            f"## [{today}] query | {question[:80]}\n\n从 {len(relevant_pages)} 个页面综合回答。",
+        )
 
     def find_relevant_pages(
         self, project_id: int, question: str

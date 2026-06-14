@@ -96,6 +96,56 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     return content  # 兜底，理论上不会走到这里
 
 
+def call_llm_stream(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "claude-3-5-sonnet-latest", max_tokens: int = 4096):
+    """
+    流式调用LLM模型，逐块yield模型回复
+
+    Args:
+        prompt: 提示词
+        model_env: 环境变量名称，用于获取模型名称
+        default_model: 默认模型名称
+        max_tokens: 最大生成token数
+
+    Yields:
+        str: 模型回复的文本块
+    """
+    try:
+        from litellm import completion
+    except ImportError:
+        logger.error("litellm not installed. Run: pip install litellm")
+        sys.exit(1)
+
+    model = os.getenv(model_env, default_model)
+
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "system", "content": prompt}],
+        "stream": True,
+        "extra_body": {"enable_thinking": False},
+    }
+
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+
+    api_base = os.getenv("OPENAI_API_BASE")
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if api_base:
+        kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    kwargs["headers"] = {"Accept-Encoding": "identity"}
+
+    response = completion(**kwargs)
+    for chunk in response:
+        if hasattr(chunk, 'choices') and chunk.choices:
+            if hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta:
+                content = chunk.choices[0].delta.content or ""
+                if content:
+                    yield content
+
+
 def read_file(path: Path) -> str:
     """读取文件内容，如果文件不存在返回空字符串"""
     return path.read_text(encoding="utf-8") if path.exists() else ""

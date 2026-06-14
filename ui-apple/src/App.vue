@@ -167,11 +167,58 @@ const graphAdjacencyMap = computed(() => graphViewRef.value?.adjacencyMap || new
 const graphNodeIndex = computed(() => graphViewRef.value?.nodeIndex || new Map())
 
 // ── API Wrappers ──────────────────────────────────────────────
-async function queryApi(question) {
-  return api(`/projects/${currentProjectId.value}/query`, {
+async function queryApi(question, onChunk) {
+  const url = `/api/projects/${currentProjectId.value}/query`
+  const res = await fetch(url, {
     method: 'POST',
-    body: JSON.stringify({ question })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, stream: !!onChunk })
   })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+
+  if (onChunk) {
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let fullAnswer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // Parse SSE lines
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.error) {
+              throw new Error(data.error)
+            }
+            if (data.done) {
+              return { answer: fullAnswer }
+            }
+            if (data.chunk) {
+              fullAnswer += data.chunk
+              onChunk(data.chunk)
+            }
+          } catch (e) {
+            // Re-throw server errors, ignore JSON parse errors on incomplete lines
+            if (e instanceof SyntaxError) continue
+            throw e
+          }
+        }
+      }
+    }
+    return { answer: fullAnswer }
+  }
+
+  return res.json()
 }
 
 async function createProjectApi({ name, description }) {
