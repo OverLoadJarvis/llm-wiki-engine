@@ -1,23 +1,16 @@
 # ============================================================
-# Stage 1: 构建前端（web + ui）
+# Stage 1: 构建前端 (ui-apple)
 # ============================================================
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 
-# 构建 web 前端（端口 5173 开发环境 → 生产构建）
-COPY web/package.json web/package-lock.json ./web/
-RUN cd web && npm ci
+# 构建 ui-apple 前端
+COPY ui-apple/package.json ui-apple/package-lock.json ./ui-apple/
+RUN cd ui-apple && npm ci
 
-COPY web/ ./web/
-RUN cd web && npm run build
-
-# 构建 ui 前端（端口 5174 开发环境 → 生产构建）
-COPY ui/package.json ui/package-lock.json ./ui/
-RUN cd ui && npm ci
-
-COPY ui/ ./ui/
-RUN cd ui && npm run build
+COPY ui-apple/ ./ui-apple/
+RUN cd ui-apple && npm run build
 
 # ============================================================
 # Stage 2: 后端 + 托管前端静态文件
@@ -40,8 +33,7 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r re
 COPY server/ ./server/
 
 # 从前端构建阶段复制构建产物
-COPY --from=frontend-builder /app/web/dist ./web-dist/
-COPY --from=frontend-builder /app/ui/dist ./ui-dist/
+COPY --from=frontend-builder /app/ui-apple/dist ./ui-dist/
 
 # 创建上传目录
 RUN mkdir -p server/uploads
@@ -49,5 +41,5 @@ RUN mkdir -p server/uploads
 # 暴露 API 端口
 EXPOSE 5000
 
-# 启动 API 服务（同时托管 web 和 ui 前端）
+# 启动 API 服务（同时托管前端）
 CMD ["python", "server/api_server.py"]
