@@ -298,11 +298,115 @@ docker run -d -p 5000:5000 \
 
 ---
 
+## MCP Server
+
+LLM Wiki Engine 内置了 MCP (Model Context Protocol) Server，以 Streamable HTTP 方式运行，允许 AI 客户端（如 Claude Code、Cursor 等）直接调用知识库引擎的全部能力。
+
+### 启动方式
+
+MCP Server 随 API 服务一同启动（`python api_server.py`），默认监听 `8081` 端口。仅在非 debug 模式下自动启动，debug 模式下禁用（避免 Flask reloader 端口冲突）。
+
+```bash
+# 启动 API + MCP 服务
+cd server
+python api_server.py
+
+# 启动日志输出：
+#   MCP 服务: http://localhost:8081/mcp
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MCP_PORT` | `8081` | MCP Streamable HTTP 服务端口 |
+
+在 `server/.env` 中配置：
+
+```env
+# MCP Streamable HTTP 服务端口
+MCP_PORT=8081
+```
+
+### AI 客户端配置
+
+在 AI 客户端（Claude Code / Trae / Cursor 等）中配置 MCP Server，即可让 AI 直接操作知识库。
+
+**Claude Code / Claude 桌面端** (`claude_desktop_config.json`)：
+
+```json
+{
+  "mcpServers": {
+    "llm-wiki-engine": {
+      "type": "url",
+      "url": "http://localhost:5001/mcp"
+    }
+  }
+}
+```
+
+**Trae IDE** (`.trae/mcp.json`)：
+
+```json
+{
+  "mcpServers": {
+    "llm-wiki-engine": {
+      "type": "url",
+      "url": "http://localhost:8081/mcp"
+    }
+  }
+}
+```
+
+**通用 Streamable HTTP MCP 客户端配置**：端点地址为 `http://<host>:<MCP_PORT>/mcp`。
+
+### MCP 工具列表
+
+| 工具名称 | 说明 | 关键参数 |
+|---------|------|---------|
+| `list_projects` | 列出所有项目及状态 | — |
+| `create_project` | 创建空项目 | `name`, `description` |
+| `import_project` | 从 ZIP 创建项目并导入 | `zip_url` / `content_base64` / `file_path`, `project_name` |
+| `export_project` | 导出项目为 Base64 ZIP | `project_id` |
+| `delete_project` | 删除项目（不可逆） | `project_id`, `confirm=true` |
+| `build_knowledge` | 构建/增量更新知识库 | `project_id`, `instruction`, `incremental` |
+| `upload_files` | 向已有项目追加文件 | `project_id`, `file_path` / `content_base64` + `file_name`, `auto_update` |
+| `query_knowledge` | 自然语言查询知识库 | `project_id`, `question` |
+| `search_files` | 全文搜索 | `project_id`, `keyword` |
+
+### 典型 MCP 工作流
+
+AI 客户端通过 MCP 可实现端到端知识库管理：
+
+1. `create_project` 创建空项目
+2. `upload_files` 追加文档文件（可多次调用）
+3. `build_knowledge` 构建知识库（可传入 `instruction` 定制编译行为）
+4. `query_knowledge` 对知识库提问
+5. `export_project` 导出项目（便于迁移/备份）
+6. `delete_project` 清理不需要的项目
+
+### Docker 部署中的 MCP
+
+使用 Docker 部署时，需额外暴露 MCP 端口：
+
+```bash
+docker run -d -p 5000:5000 -p 8081:8081 \
+  -e LLM_MODEL=deepseek-v4-flash \
+  -e OPENAI_API_KEY=your-api-key \
+  -e OPENAI_API_BASE=https://api.deepseek.com/v1 \
+  -e MCP_PORT=8081 \
+  --name llm-wiki \
+  llm-wiki
+```
+
+---
+
 ## 技术栈
 
 - **Python 3.13+** — 主语言
 - **SQLite** — 数据存储（支持 FTS5 全文搜索）
 - **Flask + Flask-CORS** — REST API 后端
+- **FastMCP** — MCP Streamable HTTP Server（AI 客户端集成）
 - **markitdown** — 多格式文档转换
 - **LLM API** — 兼容 OpenAI 接口的任意 LLM 服务
 - **uv** — 虚拟环境与包管理
