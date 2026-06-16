@@ -11,12 +11,12 @@
       <span class="logo-text">LLM Wiki</span>
     </div>
 
-    <!-- Project Selector -->
-    <div class="project-selector">
-      <select :value="selectedProjectId" @change="onProjectChange" class="project-select">
-        <option value="">Select project...</option>
-        <option v-for="p in projects" :key="p.id" :value="p.id">
-          {{ p.name }} {{ stateLabel(p.state) }}
+    <!-- KB Selector -->
+    <div class="kb-selector">
+      <select :value="selectedKbId" @change="onKbChange" class="kb-select">
+        <option value="">Select kb...</option>
+        <option v-for="k in kbs" :key="k.id" :value="k.id">
+          {{ k.name }} {{ stateLabel(k.state) }}
         </option>
       </select>
       <span v-if="selectedState" class="state-badge" :class="'state-' + selectedState">
@@ -29,7 +29,7 @@
 
     <!-- Actions -->
     <div class="nav-actions">
-      <button class="btn btn-outline btn-sm" @click="$emit('create-project')">
+      <button class="btn btn-outline btn-sm" @click="$emit('create-kb')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
         </svg>
@@ -42,13 +42,13 @@
         </svg>
         Import
       </button>
-      <button class="btn btn-outline btn-sm" @click="$emit('import-project')">
+      <button class="btn btn-outline btn-sm" @click="$emit('import-kb')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
           <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
           <line x1="4" y1="4" x2="9" y2="9" />
         </svg>
-        Import Proj
+        Import KB
       </button>
     </div>
 
@@ -75,18 +75,18 @@
         </svg>
         Build Graph
       </button>
-      <button class="btn btn-outline btn-sm" @click="$emit('lint-project')">
+      <button class="btn btn-outline btn-sm" @click="$emit('lint-kb')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         </svg>
         Lint
       </button>
-      <button class="btn btn-outline btn-sm" @click="$emit('export-project')">
+      <button class="btn btn-outline btn-sm" @click="$emit('export-kb')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        Export Proj
+        Export KB
       </button>
       <button class="btn btn-outline btn-sm" @click="$emit('show-query')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -94,7 +94,7 @@
         </svg>
         Query
       </button>
-      <button class="btn btn-outline btn-sm btn-danger" @click="$emit('delete-project')">
+      <button class="btn btn-outline btn-sm btn-danger" @click="$emit('delete-kb')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -109,14 +109,14 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  projects: { type: Array, default: () => [] },
-  selectedProjectId: { type: [String, Number], default: '' }
+  kbs: { type: Array, default: () => [] },
+  selectedKbId: { type: [String, Number], default: '' }
 })
 
 const emit = defineEmits([
-  'select-project', 'create-project', 'delete-project', 'import-project',
-  'import-files', 'build-knowledge-base', 'build-graph', 'lint-project',
-  'export-project', 'show-query', 'set-instruction'
+  'select-kb', 'create-kb', 'delete-kb', 'import-kb',
+  'import-files', 'build-knowledge-base', 'build-graph', 'lint-kb',
+  'export-kb', 'show-query', 'set-instruction'
 ])
 
 const STATE_LABELS = {
@@ -130,14 +130,14 @@ function stateLabel(state) {
 }
 
 const selectedState = computed(() => {
-  if (!props.selectedProjectId) return ''
-  const p = props.projects.find(p => p.id === props.selectedProjectId)
-  return p ? p.state : ''
+  if (!props.selectedKbId) return ''
+  const k = props.kbs.find(k => k.id === props.selectedKbId)
+  return k ? k.state : ''
 })
 
-function onProjectChange(e) {
+function onKbChange(e) {
   const val = e.target.value
-  emit('select-project', val ? Number(val) : null)
+  emit('select-kb', val ? Number(val) : null)
 }
 </script>
 
@@ -178,13 +178,13 @@ function onProjectChange(e) {
   color: var(--text-primary);
 }
 
-.project-selector {
+.kb-selector {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.project-select {
+.kb-select {
   min-width: 180px;
   max-width: 280px;
   font-size: 0.8125rem;

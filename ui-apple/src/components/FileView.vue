@@ -116,7 +116,7 @@ import { renderMarkdown as mdRender, parseFrontmatter } from '../utils/markdown.
 const props = defineProps({
   filePath: { type: String, default: '' },
   content: { type: String, default: '' },
-  projectId: { type: String, default: '' }
+  kbId: { type: String, default: '' }
 })
 
 const emit = defineEmits(['open-link', 'save-file'])

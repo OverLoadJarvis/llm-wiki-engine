@@ -1,11 +1,11 @@
--- SQLite schema for storing graph / raw / wiki file trees as projects.
--- Each project holds a snapshot of the three directories with full path preservation,
+-- SQLite schema for storing graph / raw / wiki file trees as kbs.
+-- Each kb holds a snapshot of the three directories with full path preservation,
 -- enabling search, retrieval, and directory-structure reconstruction.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS projects (
+CREATE TABLE IF NOT EXISTS kbs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
     description TEXT    DEFAULT '',
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS files (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id   INTEGER NOT NULL,
+    kb_id        INTEGER NOT NULL,
     category     TEXT    NOT NULL DEFAULT '', -- parent dir: 'graph', 'wiki/concepts', 'raw' etc.
     relative_path TEXT   NOT NULL,            -- e.g. 'wiki/concepts/全面从严治党.md'
     file_name    TEXT    NOT NULL,             -- basename: '全面从严治党.md'
@@ -26,13 +26,13 @@ CREATE TABLE IF NOT EXISTS files (
     checksum     TEXT,                        -- SHA-256 hex digest
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    UNIQUE(project_id, relative_path)
+    FOREIGN KEY (kb_id) REFERENCES kbs(id) ON DELETE CASCADE,
+    UNIQUE(kb_id, relative_path)
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_project  ON files(project_id);
-CREATE INDEX IF NOT EXISTS idx_files_path     ON files(project_id, relative_path);
-CREATE INDEX IF NOT EXISTS idx_files_category ON files(project_id, category);
+CREATE INDEX IF NOT EXISTS idx_files_kb    ON files(kb_id);
+CREATE INDEX IF NOT EXISTS idx_files_path  ON files(kb_id, relative_path);
+CREATE INDEX IF NOT EXISTS idx_files_category ON files(kb_id, category);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     relative_path,

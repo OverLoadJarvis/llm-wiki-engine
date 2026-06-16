@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LLM Wiki Web API — Flask 后端服务 + MCP Server
-提供项目、文件树、文件内容、知识图谱等 REST API，
+提供知识库、文件树、文件内容、知识图谱等 REST API，
 并附带一个 Streamable HTTP MCP 服务供 AI 客户端调用。
 """
 from __future__ import annotations
@@ -71,107 +71,107 @@ def ui_frontend(filename="index.html"):
     return send_from_directory(str(PROJECT_ROOT / "ui"), filename)
 
 
-# ── 项目 API ──────────────────────────────────────────────────────────
+# ── 知识库 API ──────────────────────────────────────────────────────────
 
-@app.route("/api/projects", methods=["GET"])
-def list_projects():
-    """列出所有项目。
+@app.route("/api/kbs", methods=["GET"])
+def list_kbs():
+    """列出所有知识库。
 
-    GET /api/projects
+    GET /api/kbs
 
     响应:
-        200: 项目列表数组，每个项目包含 id, name, description, created_at, updated_at 等字段
+        200: 知识库列表数组，每个知识库包含 id, name, description, created_at, updated_at 等字段
     """
     db = get_db()
     try:
-        projects = db.list_projects()
-        return jsonify(projects)
+        kbs = db.list_kbs()
+        return jsonify(kbs)
     finally:
         db.close()
 
 
-@app.route("/api/projects", methods=["POST"])
-def create_project():
-    """创建新项目。
+@app.route("/api/kbs", methods=["POST"])
+def create_kb():
+    """创建新知识库。
 
-    POST /api/projects
+    POST /api/kbs
 
     请求体 (JSON):
-        - name (str): 项目名称（可选，默认 "Untitled"）
-        - description (str): 项目描述（可选，默认 ""）
+        - name (str): 知识库名称（可选，默认 "Untitled"）
+        - description (str): 知识库描述（可选，默认 ""）
 
     响应:
-        201: {"id": <项目ID>, "name": "<项目名称>"}
+        201: {"id": <知识库ID>, "name": "<知识库名称>"}
     """
     data = request.get_json(force=True)
     name = data.get("name", "Untitled")
     desc = data.get("description", "")
     db = get_db()
     try:
-        pid = db.create_project(name, desc)
-        return jsonify({"id": pid, "name": name}), 201
+        kid = db.create_kb(name, desc)
+        return jsonify({"id": kid, "name": name}), 201
     finally:
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>", methods=["GET"])
-def get_project(project_id):
-    """获取单个项目详情。
+@app.route("/api/kbs/<int:kb_id>", methods=["GET"])
+def get_kb(kb_id):
+    """获取单个知识库详情。
 
-    GET /api/projects/<project_id>
+    GET /api/kbs/<kb_id>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
-        200: 项目详情对象
-        404: {"error": "项目不存在"}
+        200: 知识库详情对象
+        404: {"error": "知识库不存在"}
     """
     db = get_db()
     try:
-        proj = db.get_project(project_id)
-        if not proj:
-            return jsonify({"error": "项目不存在"}), 404
-        return jsonify(proj)
+        kb = db.get_kb(kb_id)
+        if not kb:
+            return jsonify({"error": "知识库不存在"}), 404
+        return jsonify(kb)
     finally:
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>", methods=["DELETE"])
-def delete_project(project_id):
-    """删除项目及其所有关联数据。
+@app.route("/api/kbs/<int:kb_id>", methods=["DELETE"])
+def delete_kb(kb_id):
+    """删除知识库及其所有关联数据。
 
-    DELETE /api/projects/<project_id>
+    DELETE /api/kbs/<kb_id>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: {"deleted": true/false}
     """
     db = get_db()
     try:
-        ok = db.delete_project(project_id)
+        ok = db.delete_kb(kb_id)
         return jsonify({"deleted": ok})
     finally:
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/stats", methods=["GET"])
-def project_stats(project_id):
-    """获取项目统计信息。
+@app.route("/api/kbs/<int:kb_id>/stats", methods=["GET"])
+def kb_stats(kb_id):
+    """获取知识库统计信息。
 
-    GET /api/projects/<project_id>/stats
+    GET /api/kbs/<kb_id>/stats
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: 统计信息对象，包含文件数、各类别文件数量等
     """
     db = get_db()
     try:
-        stats = db.project_stats(project_id)
+        stats = db.kb_stats(kb_id)
         return jsonify(stats)
     finally:
         db.close()
@@ -179,25 +179,25 @@ def project_stats(project_id):
 
 # ── 构建指令 API ──────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/instruction", methods=["GET"])
-def get_instruction(project_id):
-    """获取项目构建指令。
+@app.route("/api/kbs/<int:kb_id>/instruction", methods=["GET"])
+def get_instruction(kb_id):
+    """获取知识库构建指令。
 
-    GET /api/projects/<project_id>/instruction
+    GET /api/kbs/<kb_id>/instruction
     """
     db = get_db()
     try:
-        instruction = db.get_ingest_instruction(project_id)
+        instruction = db.get_ingest_instruction(kb_id)
         return jsonify({"instruction": instruction})
     finally:
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/instruction", methods=["PUT"])
-def set_instruction(project_id):
-    """更新项目构建指令。
+@app.route("/api/kbs/<int:kb_id>/instruction", methods=["PUT"])
+def set_instruction(kb_id):
+    """更新知识库构建指令。
 
-    PUT /api/projects/<project_id>/instruction
+    PUT /api/kbs/<kb_id>/instruction
     请求体: {"instruction": "..."}
     """
     data = request.get_json(silent=True) or {}
@@ -205,9 +205,9 @@ def set_instruction(project_id):
 
     db = get_db()
     try:
-        ok = db.set_ingest_instruction(project_id, instruction)
+        ok = db.set_ingest_instruction(kb_id, instruction)
         if not ok:
-            return jsonify({"error": "项目不存在"}), 404
+            return jsonify({"error": "知识库不存在"}), 404
         return jsonify({"instruction": instruction})
     finally:
         db.close()
@@ -215,21 +215,21 @@ def set_instruction(project_id):
 
 # ── 文件树 API ────────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/tree", methods=["GET"])
-def get_tree(project_id):
-    """获取项目的文件目录树结构。
+@app.route("/api/kbs/<int:kb_id>/tree", methods=["GET"])
+def get_tree(kb_id):
+    """获取知识库的文件目录树结构。
 
-    GET /api/projects/<project_id>/tree
+    GET /api/kbs/<kb_id>/tree
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: 嵌套的目录树结构（JSON 树形对象）
     """
     db = get_db()
     try:
-        tree = db.get_directory_tree(project_id)
+        tree = db.get_directory_tree(kb_id)
         return jsonify(tree)
     finally:
         db.close()
@@ -237,14 +237,14 @@ def get_tree(project_id):
 
 # ── 文件列表 API ──────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/files", methods=["GET"])
-def list_files(project_id):
-    """列出项目中的文件。
+@app.route("/api/kbs/<int:kb_id>/files", methods=["GET"])
+def list_files(kb_id):
+    """列出知识库中的文件。
 
-    GET /api/projects/<project_id>/files?prefix=<目录前缀>
+    GET /api/kbs/<kb_id>/files?prefix=<目录前缀>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     查询参数:
         - prefix (str, 可选): 目录前缀过滤，如 "wiki/" 或 "graph/"
@@ -255,7 +255,7 @@ def list_files(project_id):
     db = get_db()
     try:
         prefix = request.args.get("prefix", "")
-        files = db.list_files(project_id, prefix)
+        files = db.list_files(kb_id, prefix)
         return jsonify(files)
     finally:
         db.close()
@@ -263,14 +263,14 @@ def list_files(project_id):
 
 # ── 文件内容 API ──────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/files/<path:rel_path>", methods=["GET"])
-def get_file_content(project_id, rel_path):
+@app.route("/api/kbs/<int:kb_id>/files/<path:rel_path>", methods=["GET"])
+def get_file_content(kb_id, rel_path):
     """获取指定文件的内容。
 
-    GET /api/projects/<project_id>/files/<rel_path>
+    GET /api/kbs/<kb_id>/files/<rel_path>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
         - rel_path (str): 文件相对路径，如 "wiki/index.md"
 
     响应:
@@ -279,7 +279,7 @@ def get_file_content(project_id, rel_path):
     """
     db = get_db()
     try:
-        text = db.get_file_text_by_path(project_id, rel_path)
+        text = db.get_file_text_by_path(kb_id, rel_path)
         if text is None:
             return jsonify({"error": "文件不存在或内容为空"}), 404
         return Response(text, mimetype="text/plain; charset=utf-8")
@@ -287,14 +287,14 @@ def get_file_content(project_id, rel_path):
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/files/<path:rel_path>", methods=["PUT"])
-def update_file_content(project_id, rel_path):
+@app.route("/api/kbs/<int:kb_id>/files/<path:rel_path>", methods=["PUT"])
+def update_file_content(kb_id, rel_path):
     """更新指定文件的内容。
 
-    PUT /api/projects/<project_id>/files/<rel_path>
+    PUT /api/kbs/<kb_id>/files/<rel_path>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
         - rel_path (str): 文件相对路径，如 "wiki/index.md"
 
     请求体 (JSON):
@@ -311,7 +311,7 @@ def update_file_content(project_id, rel_path):
         return jsonify({"error": "缺少 content 字段"}), 400
     db = get_db()
     try:
-        ok = db.update_file_by_path(project_id, rel_path, content)
+        ok = db.update_file_by_path(kb_id, rel_path, content)
         if not ok:
             return jsonify({"error": "文件不存在"}), 404
         return jsonify({"ok": True})
@@ -321,14 +321,14 @@ def update_file_content(project_id, rel_path):
 
 # ── 知识图谱 API ──────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/graph", methods=["GET"])
-def get_graph(project_id):
+@app.route("/api/kbs/<int:kb_id>/graph", methods=["GET"])
+def get_graph(kb_id):
     """获取知识图谱数据。
 
-    GET /api/projects/<project_id>/graph?file=<图谱文件路径>
+    GET /api/kbs/<kb_id>/graph?file=<图谱文件路径>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     查询参数:
         - file (str, 可选): 图谱文件路径，默认 "graph/graph.json"
@@ -340,7 +340,7 @@ def get_graph(project_id):
     db = get_db()
     try:
         graph_file = request.args.get("file", "graph/graph.json")
-        graph_json = db.get_file_text_by_path(project_id, graph_file)
+        graph_json = db.get_file_text_by_path(kb_id, graph_file)
         if not graph_json:
             return jsonify({"error": "图谱数据不存在"}), 404
         try:
@@ -352,21 +352,21 @@ def get_graph(project_id):
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/graph/files", methods=["GET"])
-def list_graph_files(project_id):
+@app.route("/api/kbs/<int:kb_id>/graph/files", methods=["GET"])
+def list_graph_files(kb_id):
     """列出图谱目录下的所有文件。
 
-    GET /api/projects/<project_id>/graph/files
+    GET /api/kbs/<kb_id>/graph/files
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: graph/ 目录下的文件列表
     """
     db = get_db()
     try:
-        files = db.list_files(project_id, "graph/")
+        files = db.list_files(kb_id, "graph/")
         return jsonify(files)
     finally:
         db.close()
@@ -374,14 +374,14 @@ def list_graph_files(project_id):
 
 # ── 搜索 API ──────────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/search", methods=["GET"])
-def search_files(project_id):
+@app.route("/api/kbs/<int:kb_id>/search", methods=["GET"])
+def search_files(kb_id):
     """全文搜索文件。
 
-    GET /api/projects/<project_id>/search?q=<关键词>
+    GET /api/kbs/<kb_id>/search?q=<关键词>
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     查询参数:
         - q (str): 搜索关键词
@@ -394,7 +394,7 @@ def search_files(project_id):
         keyword = request.args.get("q", "")
         if not keyword:
             return jsonify([])
-        results = db.search(project_id, keyword)
+        results = db.search(kb_id, keyword)
         return jsonify(results)
     finally:
         db.close()
@@ -402,34 +402,34 @@ def search_files(project_id):
 
 # ── 引擎工作流 API ────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/build", methods=["POST"])
-def build_knowledge_base(project_id):
+@app.route("/api/kbs/<int:kb_id>/build", methods=["POST"])
+def build_knowledge_base(kb_id):
     """构建知识库（完整流程：解析、索引、生成图谱等）。不会构建隐式边
 
-    POST /api/projects/<project_id>/build
+    POST /api/kbs/<kb_id>/build
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     行为:
-        构建前将项目状态设为 building，构建完成后设为 completed。
+        构建前将知识库状态设为 building，构建完成后设为 completed。
 
     响应:
         200: 构建结果对象
     """
     db = get_db()
     try:
-        db.set_project_state(project_id, "building")
+        db.set_kb_state(kb_id, "building")
     finally:
         db.close()
 
     engine = get_engine()
     try:
-        result = engine.build_knowledge_base(project_id)
+        result = engine.build_knowledge_base(kb_id)
 
         db2 = get_db()
         try:
-            db2.set_project_state(project_id, "completed")
+            db2.set_kb_state(kb_id, "completed")
         finally:
             db2.close()
 
@@ -437,7 +437,7 @@ def build_knowledge_base(project_id):
     except Exception:
         db2 = get_db()
         try:
-            db2.set_project_state(project_id, "unbuilt")
+            db2.set_kb_state(kb_id, "unbuilt")
         finally:
             db2.close()
         raise
@@ -445,20 +445,20 @@ def build_knowledge_base(project_id):
         engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/update", methods=["POST"])
-def update_knowledge_base(project_id):
+@app.route("/api/kbs/<int:kb_id>/update", methods=["POST"])
+def update_knowledge_base(kb_id):
     """增量更新知识库。
 
-    POST /api/projects/<project_id>/update
+    POST /api/kbs/<kb_id>/update
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     请求体 (JSON, 可选):
         - source_dir (str, 可选): 源文件目录路径，若提供则先导入新文件再增量摄入
 
     行为:
-        更新前将项目状态设为 building，更新完成后设为 completed。
+        更新前将知识库状态设为 building，更新完成后设为 completed。
 
     响应:
         200: 更新结果对象，status 可能为 "up_to_date" 或 "completed"
@@ -468,17 +468,17 @@ def update_knowledge_base(project_id):
 
     db = get_db()
     try:
-        db.set_project_state(project_id, "building")
+        db.set_kb_state(kb_id, "building")
     finally:
         db.close()
 
     engine = get_engine()
     try:
-        result = engine.update_knowledge_base(project_id, source_dir)
+        result = engine.update_knowledge_base(kb_id, source_dir)
 
         db2 = get_db()
         try:
-            db2.set_project_state(project_id, "completed")
+            db2.set_kb_state(kb_id, "completed")
         finally:
             db2.close()
 
@@ -486,7 +486,7 @@ def update_knowledge_base(project_id):
     except Exception:
         db2 = get_db()
         try:
-            db2.set_project_state(project_id, "unbuilt")
+            db2.set_kb_state(kb_id, "unbuilt")
         finally:
             db2.close()
         raise
@@ -494,14 +494,14 @@ def update_knowledge_base(project_id):
         engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/query", methods=["POST"])
-def query_knowledge_base(project_id):
+@app.route("/api/kbs/<int:kb_id>/query", methods=["POST"])
+def query_knowledge_base(kb_id):
     """向知识库提问。
 
-    POST /api/projects/<project_id>/query
+    POST /api/kbs/<kb_id>/query
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     请求体 (JSON):
         - question (str): 用户问题
@@ -519,7 +519,7 @@ def query_knowledge_base(project_id):
     if stream:
         def generate():
             try:
-                for chunk in engine.query_stream(project_id, question):
+                for chunk in engine.query_stream(kb_id, question):
                     yield f"data: {json.dumps({'chunk': chunk})}\n\n"
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
@@ -537,67 +537,67 @@ def query_knowledge_base(project_id):
         )
     else:
         try:
-            answer = engine.query(project_id, question)
+            answer = engine.query(kb_id, question)
             return jsonify({"answer": answer})
         finally:
             engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/health", methods=["GET"])
-def health_check(project_id):
-    """检查项目健康状态（缺失实体、孤立节点等）。
+@app.route("/api/kbs/<int:kb_id>/health", methods=["GET"])
+def health_check(kb_id):
+    """检查知识库健康状态（缺失实体、孤立节点等）。
 
-    GET /api/projects/<project_id>/health
+    GET /api/kbs/<kb_id>/health
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: 健康检查结果对象
     """
     engine = get_engine()
     try:
-        result = engine.health_check(project_id)
+        result = engine.health_check(kb_id)
         return jsonify(result)
     finally:
         engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/lint", methods=["POST"])
-def lint_project(project_id):
-    """对项目进行代码风格/结构检查。
+@app.route("/api/kbs/<int:kb_id>/lint", methods=["POST"])
+def lint_kb(kb_id):
+    """对知识库进行代码风格/结构检查。
 
-    POST /api/projects/<project_id>/lint
+    POST /api/kbs/<kb_id>/lint
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: {"report": "<检查报告文本>"}
     """
     engine = get_engine()
     try:
-        report = engine.lint(project_id, save=True)
+        report = engine.lint(kb_id, save=True)
         return jsonify({"report": report})
     finally:
         engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/graph/build", methods=["POST"])
-def build_graph(project_id):
+@app.route("/api/kbs/<int:kb_id>/graph/build", methods=["POST"])
+def build_graph(kb_id):
     """构建/重建知识图谱。构建会构建隐式边（INFERRED / AMBIGUOUS）。
 
-    POST /api/projects/<project_id>/graph/build
+    POST /api/kbs/<kb_id>/graph/build
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     响应:
         200: 图谱构建结果对象
     """
     engine = get_engine()
     try:
-        result = engine.build_graph(project_id)
+        result = engine.build_graph(kb_id)
         return jsonify(result)
     finally:
         engine.close()
@@ -605,14 +605,14 @@ def build_graph(project_id):
 
 # ── 导入文件 API ──────────────────────────────────────────────────────
 
-@app.route("/api/projects/<int:project_id>/import", methods=["POST"])
-def import_files(project_id):
-    """从本地目录导入文件到项目。
+@app.route("/api/kbs/<int:kb_id>/import", methods=["POST"])
+def import_files(kb_id):
+    """从本地目录导入文件到知识库。
 
-    POST /api/projects/<project_id>/import
+    POST /api/kbs/<kb_id>/import
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     请求体 (JSON):
         - source_dir (str): 源文件目录的绝对或相对路径
@@ -627,33 +627,33 @@ def import_files(project_id):
         return jsonify({"error": "缺少 source_dir 参数"}), 400
     engine = get_engine()
     try:
-        result = engine.import_raw_files(project_id, source_dir)
+        result = engine.import_raw_files(kb_id, source_dir)
         return jsonify(result)
     finally:
         engine.close()
 
 
-@app.route("/api/projects/<int:project_id>/import-zip", methods=["POST"])
-def import_zip(project_id):
-    """上传 ZIP 压缩包并导入到项目。
+@app.route("/api/kbs/<int:kb_id>/import-zip", methods=["POST"])
+def import_zip(kb_id):
+    """上传 ZIP 压缩包并导入到知识库。
 
-    POST /api/projects/<project_id>/import-zip
+    POST /api/kbs/<kb_id>/import-zip
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     请求体 (multipart/form-data):
         - file (file): ZIP 压缩包文件
 
     行为:
         1. 将 ZIP 文件保存到临时目录
-        2. 解压缩到 ``uploads/<project_name>/`` 目录
-        3. 将解压后的文件导入到 Wiki 引擎项目
+        2. 解压缩到 ``uploads/<kb_name>/`` 目录
+        3. 将解压后的文件导入到 Wiki 引擎知识库
 
     响应:
         200: {"imported": <成功数>, "skipped": <跳过数>, "errors": <错误数>}
         400: {"error": "..."}
-        404: {"error": "项目不存在"}
+        404: {"error": "知识库不存在"}
     """
     import tempfile
     import zipfile
@@ -667,11 +667,11 @@ def import_zip(project_id):
 
     db = get_db()
     try:
-        project = db.get_project(project_id)
-        if not project:
-            return jsonify({"error": "项目不存在"}), 404
+        kb = db.get_kb(kb_id)
+        if not kb:
+            return jsonify({"error": "知识库不存在"}), 404
 
-        extract_dir = DEFAULT_UPLOAD_DIR / project["name"]
+        extract_dir = DEFAULT_UPLOAD_DIR / kb["name"]
         extract_dir.mkdir(parents=True, exist_ok=True)
 
         # 将上传的 ZIP 写入临时文件，再解压
@@ -687,7 +687,7 @@ def import_zip(project_id):
             engine = get_engine()
             try:
                 logger.info("Importing files from %s", extract_dir)
-                import_result = engine.import_raw_files(project_id, str(extract_dir))
+                import_result = engine.import_raw_files(kb_id, str(extract_dir))
             finally:
                 engine.close()
         finally:
@@ -699,40 +699,40 @@ def import_zip(project_id):
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/export", methods=["GET"])
-def export_project(project_id):
-    """导出项目为 ZIP 压缩包。
+@app.route("/api/kbs/<int:kb_id>/export", methods=["GET"])
+def export_kb(kb_id):
+    """导出知识库为 ZIP 压缩包。
 
-    GET /api/projects/<project_id>/export
+    GET /api/kbs/<kb_id>/export
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     行为:
-        将项目中 raw/、wiki/、graph/ 三个目录下的所有文件打包为 ZIP 下载。
+        将知识库中 raw/、wiki/、graph/ 三个目录下的所有文件打包为 ZIP 下载。
 
     响应:
         200: ZIP 文件流（Content-Type: application/zip）
-        404: {"error": "项目不存在"}
+        404: {"error": "知识库不存在"}
     """
     import io
     import zipfile
 
     db = get_db()
     try:
-        project = db.get_project(project_id)
-        if not project:
-            return jsonify({"error": "项目不存在"}), 404
+        kb = db.get_kb(kb_id)
+        if not kb:
+            return jsonify({"error": "知识库不存在"}), 404
 
         # 收集所有需要导出的文件
         prefixes = ("raw/", "wiki/", "graph/")
         all_files = []
         for prefix in prefixes:
-            files = db.list_files(project_id, prefix)
+            files = db.list_files(kb_id, prefix)
             all_files.extend(files)
 
         if not all_files:
-            return jsonify({"error": "项目没有可导出的文件"}), 404
+            return jsonify({"error": "知识库没有可导出的文件"}), 404
 
         # 在内存中构建 ZIP
         buf = io.BytesIO()
@@ -741,8 +741,8 @@ def export_project(project_id):
                 rel_path = f["relative_path"]
                 # 直接读取二进制内容，兼容文本和非文本文件
                 row = db.conn.execute(
-                    "SELECT content FROM files WHERE project_id = ? AND relative_path = ?",
-                    (project_id, rel_path),
+                    "SELECT content FROM files WHERE kb_id = ? AND relative_path = ?",
+                    (kb_id, rel_path),
                 ).fetchone()
                 content = row["content"] if row and row["content"] else b""
                 zf.writestr(rel_path, content)
@@ -750,9 +750,9 @@ def export_project(project_id):
         buf.seek(0)
         from urllib.parse import quote
 
-        project_name = project["name"]
-        safe_name = f"project_{project_id}_export.zip"
-        encoded_name = quote(project_name, safe="")
+        kb_name = kb["name"]
+        safe_name = f"kb_{kb_id}_export.zip"
+        encoded_name = quote(kb_name, safe="")
         return Response(
             buf,
             mimetype="application/zip",
@@ -767,24 +767,24 @@ def export_project(project_id):
         db.close()
 
 
-@app.route("/api/projects/import", methods=["POST"])
-def import_project():
-    """导入项目 ZIP 包，恢复完整项目。
+@app.route("/api/kbs/import", methods=["POST"])
+def import_kb():
+    """导入知识库 ZIP 包，恢复完整知识库。
 
-    POST /api/projects/import
+    POST /api/kbs/import
 
     请求体 (multipart/form-data):
-        - file (file): 项目 ZIP 压缩包
+        - file (file): 知识库 ZIP 压缩包
 
     行为:
-        1. 以 ZIP 文件名（不含扩展名）作为项目名称，创建新项目
+        1. 以 ZIP 文件名（不含扩展名）作为知识库名称，创建新知识库
         2. 将 ZIP 内所有文件直接写入数据库（raw/、wiki/、graph/ 等目录结构）
         3. 不触发知识库构建等引擎行为，纯数据落库
 
     响应:
-        200: {"project_id": <ID>, "project_name": "<名称>", "file_count": <N>}
+        200: {"kb_id": <ID>, "kb_name": "<名称>", "file_count": <N>}
         400: {"error": "..."}
-        409: {"error": "项目已存在"}
+        409: {"error": "知识库已存在"}
     """
     import tempfile
     import zipfile
@@ -796,18 +796,18 @@ def import_project():
     if not file.filename.lower().endswith(".zip"):
         return jsonify({"error": "仅支持 .zip 格式的压缩包"}), 400
 
-    # 以 ZIP 文件名（不含扩展名）作为项目名称
-    project_name = Path(file.filename).stem
+    # 以 ZIP 文件名（不含扩展名）作为知识库名称
+    kb_name = Path(file.filename).stem
 
     db = get_db()
     try:
-        # 检查项目名是否已存在
-        existing = db.get_project_by_name(project_name)
+        # 检查知识库名是否已存在
+        existing = db.get_kb_by_name(kb_name)
         if existing:
-            return jsonify({"error": f"项目 \"{project_name}\" 已存在"}), 409
+            return jsonify({"error": f"知识库 \"{kb_name}\" 已存在"}), 409
 
-        # 创建项目
-        project_id = db.create_project(project_name)
+        # 创建知识库
+        kb_id = db.create_kb(kb_name)
 
         # 将 ZIP 写入临时文件
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
@@ -822,29 +822,29 @@ def import_project():
                         continue
                     rel_path = info.filename.replace("\\", "/")
                     content = zf.read(info.filename)
-                    db.add_file(project_id, rel_path, content)
+                    db.add_file(kb_id, rel_path, content)
                     file_count += 1
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
 
         return jsonify({
-            "project_id": project_id,
-            "project_name": project_name,
+            "kb_id": kb_id,
+            "kb_name": kb_name,
             "file_count": file_count,
         }), 201
     finally:
         db.close()
 
 
-@app.route("/api/projects/<int:project_id>/upload-file", methods=["POST"])
-def upload_file_to_project(project_id):
-    """外部系统向指定项目上传文件，支持单文件或 ZIP 压缩包，并可选择增量更新知识库。
+@app.route("/api/kbs/<int:kb_id>/upload-file", methods=["POST"])
+def upload_file_to_kb(kb_id):
+    """外部系统向指定知识库上传文件，支持单文件或 ZIP 压缩包，并可选择增量更新知识库。
 
-    POST /api/projects/<project_id>/upload-file
+    POST /api/kbs/<kb_id>/upload-file
 
     路径参数:
-        - project_id (int): 项目 ID
+        - kb_id (int): 知识库 ID
 
     请求体 (multipart/form-data):
         - file (file): 单个文件或 .zip 压缩包
@@ -853,7 +853,7 @@ def upload_file_to_project(project_id):
         - update (bool, 可选): 是否在上传后增量更新知识库，默认 false
 
     行为:
-        1. 若为 .zip 文件: 解压到临时目录，将所有文件导入到 Wiki 引擎项目
+        1. 若为 .zip 文件: 解压到临时目录，将所有文件导入到 Wiki 引擎知识库
         2. 若为单文件: 保存到本地目录后导入
         3. 若 update=true，触发增量知识库更新
 
@@ -861,7 +861,7 @@ def upload_file_to_project(project_id):
         200: {"file_name": "<文件名>", "import_result": {"imported": N, "skipped": N, "errors": N},
               "file_count": <N>, "update_result": <更新结果或null>}
         400: {"error": "..."}
-        404: {"error": "项目不存在"}
+        404: {"error": "知识库不存在"}
     """
     import tempfile
     import zipfile
@@ -873,14 +873,14 @@ def upload_file_to_project(project_id):
 
     db = get_db()
     try:
-        project = db.get_project(project_id)
-        if not project:
-            return jsonify({"error": "项目不存在"}), 404
+        kb = db.get_kb(kb_id)
+        if not kb:
+            return jsonify({"error": "知识库不存在"}), 404
 
         safe_name = secure_filename(file.filename)
         is_zip = safe_name.lower().endswith(".zip")
 
-        upload_dir = DEFAULT_UPLOAD_DIR / project["name"]
+        upload_dir = DEFAULT_UPLOAD_DIR / kb["name"]
         upload_dir.mkdir(parents=True, exist_ok=True)
 
         engine = get_engine()
@@ -898,7 +898,7 @@ def upload_file_to_project(project_id):
                     with zipfile.ZipFile(str(tmp_path), "r") as zf:
                         zf.extractall(str(extract_dir))
 
-                    import_result = engine.import_raw_files(project_id, str(extract_dir))
+                    import_result = engine.import_raw_files(kb_id, str(extract_dir))
                     file_count = import_result.get("imported", 0)
                 finally:
                     if tmp_path.exists():
@@ -911,7 +911,7 @@ def upload_file_to_project(project_id):
                 dest_path = upload_dir / safe_name
                 file.save(str(dest_path))
 
-                import_result = engine.import_raw_files(project_id, str(upload_dir))
+                import_result = engine.import_raw_files(kb_id, str(upload_dir))
                 file_count = import_result.get("imported", 0)
 
                 # 导入完成后清理本地临时文件
@@ -920,7 +920,7 @@ def upload_file_to_project(project_id):
 
             update_result = None
             if request.args.get("update", "").lower() == "true":
-                update_result = engine.update_knowledge_base(project_id)
+                update_result = engine.update_knowledge_base(kb_id)
 
             return jsonify({
                 "file_name": safe_name,
@@ -943,31 +943,31 @@ def external_upload():
     POST /api/external/upload
 
     请求体 (multipart/form-data):
-        - project_name (str): 项目名称，文件将存储到 uploads/<project_name>/ 目录
+        - kb_name (str): 知识库名称，文件将存储到 uploads/<kb_name>/ 目录
         - files (file): 一个或多个文件
 
     行为:
-        1. 将文件保存到 ``DEFAULT_UPLOAD_DIR / project_name /`` 本地目录
-        2. 按项目名称查找或自动创建项目
+        1. 将文件保存到 ``DEFAULT_UPLOAD_DIR / kb_name /`` 本地目录
+        2. 按知识库名称查找或自动创建知识库
         3. 将上传目录中的文件导入到 Wiki 引擎
 
     响应:
-        200: {"project_id": <ID>, "project_name": "<名称>", "files": ["file1", ...],
+        200: {"kb_id": <ID>, "kb_name": "<名称>", "files": ["file1", ...],
               "import_result": {"imported": N, "skipped": N, "errors": N}}
         400: {"error": "..."}
     """
-    project_name = request.form.get("project_name", "").strip()
-    if not project_name:
-        return jsonify({"error": "缺少 project_name 参数"}), 400
+    kb_name = request.form.get("kb_name", "").strip()
+    if not kb_name:
+        return jsonify({"error": "缺少 kb_name 参数"}), 400
 
     uploaded_files = request.files.getlist("files")
     if not uploaded_files or all(f.filename == "" for f in uploaded_files):
         return jsonify({"error": "未提供任何文件"}), 400
 
-    # 1. 保存文件到本地目录: uploads/<project_name>/
+    # 1. 保存文件到本地目录: uploads/<kb_name>/
     from werkzeug.utils import secure_filename
 
-    upload_dir = DEFAULT_UPLOAD_DIR / project_name
+    upload_dir = DEFAULT_UPLOAD_DIR / kb_name
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
@@ -982,22 +982,22 @@ def external_upload():
     if not saved_files:
         return jsonify({"error": "没有有效的文件被保存"}), 400
 
-    # 2. 查找或创建项目
+    # 2. 查找或创建知识库
     db = get_db()
     try:
-        project = db.get_project_by_name(project_name)
-        if project:
-            project_id = project["id"]
+        kb = db.get_kb_by_name(kb_name)
+        if kb:
+            kb_id = kb["id"]
         else:
-            project_id = db.create_project(project_name, f"外部上传: {project_name}")
+            kb_id = db.create_kb(kb_name, f"外部上传: {kb_name}")
 
         # 3. 导入文件到 Wiki 引擎
         engine = get_engine()
         try:
-            import_result = engine.import_raw_files(project_id, str(upload_dir))
+            import_result = engine.import_raw_files(kb_id, str(upload_dir))
             return jsonify({
-                "project_id": project_id,
-                "project_name": project_name,
+                "kb_id": kb_id,
+                "kb_name": kb_name,
                 "upload_dir": str(upload_dir),
                 "files": saved_files,
                 "import_result": import_result,
@@ -1040,8 +1040,8 @@ def list_kbs() -> dict:
     """列出所有知识库，返回每个知识库的 ID、名称、状态（unbuilt/building/completed）和统计信息。"""
     db = _mcp_db()
     try:
-        projects = db.list_projects()
-        return {"kbs": projects, "total": len(projects)}
+        kbs = db.list_kbs()
+        return {"kbs": kbs, "total": len(kbs)}
     finally:
         db.close()
 
@@ -1056,8 +1056,8 @@ def create_kb(name: str = "Untitled", description: str = "") -> dict:
     """
     db = _mcp_db()
     try:
-        pid = db.create_project(name, description)
-        return {"kb_id": pid, "name": name, "message": "知识库创建成功"}
+        kid = db.create_kb(name, description)
+        return {"kb_id": kid, "name": name, "message": "知识库创建成功"}
     finally:
         db.close()
 
@@ -1156,7 +1156,7 @@ def import_kb(
             # 4. 创建知识库
             db = _mcp_db()
             try:
-                pid = db.create_project(kb_name)
+                kid = db.create_kb(kb_name)
             finally:
                 db.close()
 
@@ -1165,7 +1165,7 @@ def import_kb(
             if has_raw:
                 engine = _mcp_engine()
                 try:
-                    raw_result = engine.import_raw_files(pid, str(extract_dir / "raw"))
+                    raw_result = engine.import_raw_files(kid, str(extract_dir / "raw"))
                     stats["raw_imported"] = raw_result.get("imported", 0)
                     stats["skipped"] += raw_result.get("skipped", 0)
                     stats["errors"] += raw_result.get("errors", 0)
@@ -1181,7 +1181,7 @@ def import_kb(
                             content = f.read_bytes()
                             db2 = _mcp_db()
                             try:
-                                db2.add_file(pid, rel, content)
+                                db2.add_file(kid, rel, content)
                             finally:
                                 db2.close()
                             stats["wiki_imported"] += 1
@@ -1197,7 +1197,7 @@ def import_kb(
                             content = f.read_bytes()
                             db2 = _mcp_db()
                             try:
-                                db2.add_file(pid, rel, content)
+                                db2.add_file(kid, rel, content)
                             finally:
                                 db2.close()
                             stats["graph_imported"] += 1
@@ -1208,14 +1208,14 @@ def import_kb(
             db2 = _mcp_db()
             try:
                 if has_wiki or has_graph:
-                    db2.set_project_state(pid, "completed")
+                    db2.set_kb_state(kid, "completed")
                 else:
-                    db2.set_project_state(pid, "unbuilt")
+                    db2.set_kb_state(kid, "unbuilt")
             finally:
                 db2.close()
 
             return {
-                "kb_id": pid,
+                "kb_id": kid,
                 "kb_name": kb_name,
                 "raw_imported": stats["raw_imported"],
                 "wiki_imported": stats["wiki_imported"],
@@ -1246,8 +1246,8 @@ def export_kb(kb_id: int) -> dict:
 
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在"}
 
         prefixes = ("raw/", "wiki/", "graph/")
@@ -1270,7 +1270,7 @@ def export_kb(kb_id: int) -> dict:
 
         return {
             "kb_id": kb_id,
-            "kb_name": project["name"],
+            "kb_name": kb["name"],
             "file_count": len(all_files),
             "content_base64": zip_base64,
             "format": "zip",
@@ -1297,12 +1297,12 @@ def delete_kb(kb_id: int, confirm: bool = False) -> dict:
 
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在", "kb_id": kb_id}
 
-        kb_name = project["name"]
-        deleted = db.delete_project(kb_id)
+        kb_name = kb["name"]
+        deleted = db.delete_kb(kb_id)
         return {
             "deleted": deleted,
             "kb_id": kb_id,
@@ -1329,12 +1329,12 @@ def build_knowledge(kb_id: int, instruction: str = "", incremental: bool = False
     """
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在"}
         if instruction:
             db.set_ingest_instruction(kb_id, instruction)
-        db.set_project_state(kb_id, "building")
+        db.set_kb_state(kb_id, "building")
     finally:
         db.close()
 
@@ -1346,7 +1346,7 @@ def build_knowledge(kb_id: int, instruction: str = "", incremental: bool = False
             result = engine.build_knowledge_base(kb_id)
         db2 = _mcp_db()
         try:
-            db2.set_project_state(kb_id, "completed")
+            db2.set_kb_state(kb_id, "completed")
         finally:
             db2.close()
         return {
@@ -1357,7 +1357,7 @@ def build_knowledge(kb_id: int, instruction: str = "", incremental: bool = False
     except Exception as e:
         db2 = _mcp_db()
         try:
-            db2.set_project_state(kb_id, "unbuilt")
+            db2.set_kb_state(kb_id, "unbuilt")
         finally:
             db2.close()
         return {
@@ -1394,8 +1394,8 @@ def upload_files(
 
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在"}
     finally:
         db.close()
@@ -1441,7 +1441,7 @@ def upload_files(
                     shutil.rmtree(str(extract_dir), ignore_errors=True)
         else:
             # 单文件：保存到上传目录后导入
-            dest_dir = DEFAULT_UPLOAD_DIR / project["name"]
+            dest_dir = DEFAULT_UPLOAD_DIR / kb["name"]
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / src_name
             shutil.copy2(str(src_path), str(dest_path))
@@ -1472,13 +1472,13 @@ def upload_files(
         try:
             db2 = _mcp_db()
             try:
-                db2.set_project_state(kb_id, "building")
+                db2.set_kb_state(kb_id, "building")
             finally:
                 db2.close()
             update_result = engine.update_knowledge_base(kb_id)
             db2 = _mcp_db()
             try:
-                db2.set_project_state(kb_id, "completed")
+                db2.set_kb_state(kb_id, "completed")
             finally:
                 db2.close()
             result["update_result"] = update_result
@@ -1529,8 +1529,8 @@ def search_files(kb_id: int, keyword: str) -> dict:
     """
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在"}
         results = db.search(kb_id, keyword)
         return {
@@ -1553,8 +1553,8 @@ def read_wiki_file(kb_id: int, relative_path: str) -> dict:
     """
     db = _mcp_db()
     try:
-        project = db.get_project(kb_id)
-        if not project:
+        kb = db.get_kb(kb_id)
+        if not kb:
             return {"error": "知识库不存在", "kb_id": kb_id}
 
         text = db.get_file_text_by_path(kb_id, relative_path)

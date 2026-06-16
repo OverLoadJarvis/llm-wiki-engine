@@ -1,10 +1,10 @@
-"""项目管理与文件导入模块
+"""知识库管理与文件导入模块
 
-提供项目的 CRUD 操作，以及将本地文件导入 SQLite 的功能。
+提供知识库的 CRUD 操作，以及将本地文件导入 SQLite 的功能。
 
 类:
-    ProjectManager — 项目生命周期管理
-    FileImporter   — 原始文件扫描、格式转换与导入
+    KbManager   — 知识库生命周期管理
+    FileImporter — 原始文件扫描、格式转换与导入
 """
 
 import tempfile
@@ -21,10 +21,10 @@ from tools.logger import get_logger
 logger = get_logger(__name__)
 
 
-class ProjectManager:
-    """项目生命周期管理。
+class KbManager:
+    """知识库生命周期管理。
 
-    封装对 WikiStorage 的项目 CRUD 操作，提供统一的项目管理接口。
+    封装对 WikiStorage 的知识库 CRUD 操作，提供统一的知识库管理接口。
 
     Args:
         db: WikiStorage 数据库实例
@@ -33,50 +33,50 @@ class ProjectManager:
     def __init__(self, db: WikiStorage) -> None:
         self.db = db
 
-    def create_project(self, name: str, description: str = "") -> int:
-        """创建新项目。
+    def create_kb(self, name: str, description: str = "") -> int:
+        """创建新知识库。
 
         Args:
-            name: 项目名称
-            description: 项目描述
+            name: 知识库名称
+            description: 知识库描述
 
         Returns:
-            新创建项目的 ID
+            新创建知识库的 ID
         """
-        return self.db.create_project(name, description)
+        return self.db.create_kb(name, description)
 
-    def get_project(self, project_id: int) -> dict[str, Any] | None:
-        """获取项目信息。
+    def get_kb(self, kb_id: int) -> dict[str, Any] | None:
+        """获取知识库信息。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
-            项目信息字典，若不存在返回 ``None``
+            知识库信息字典，若不存在返回 ``None``
         """
-        return self.db.get_project(project_id)
+        return self.db.get_kb(kb_id)
 
-    def list_projects(self) -> list[dict[str, Any]]:
-        """列出所有项目。
+    def list_kbs(self) -> list[dict[str, Any]]:
+        """列出所有知识库。
 
         Returns:
-            项目信息字典列表
+            知识库信息字典列表
         """
-        return self.db.list_projects()
+        return self.db.list_kbs()
 
-    def delete_project(self, project_id: int) -> bool:
-        """删除项目及其所有关联的文件。
+    def delete_kb(self, kb_id: int) -> bool:
+        """删除知识库及其所有关联的文件。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
             是否删除成功
 
         Note:
-            删除项目时会同步删除所有关联的文件记录（包括 raw/、wiki/、graph/ 等）。
+            删除知识库时会同步删除所有关联的文件记录（包括 raw/、wiki/、graph/ 等）。
         """
-        return self.db.delete_project(project_id)
+        return self.db.delete_kb(kb_id)
 
 
 class FileImporter:
@@ -92,7 +92,7 @@ class FileImporter:
     def __init__(self, db: WikiStorage) -> None:
         self.db = db
 
-    def import_raw_files(self, project_id: int, source_dir: str | Path) -> dict[str, int]:
+    def import_raw_files(self, kb_id: int, source_dir: str | Path) -> dict[str, int]:
         """将本地目录中的原始文件扫描并转换为 Markdown 后存入 SQLite。
 
         递归扫描 ``source_dir`` 下的所有文件，跳过隐藏文件和不支持的格式。
@@ -100,7 +100,7 @@ class FileImporter:
         原始文件本身不存入 SQLite，仅保存转换后的 MD 文件。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             source_dir: 源文件目录路径
 
         Returns:
@@ -111,15 +111,15 @@ class FileImporter:
 
         Raises:
             FileNotFoundError: 目录不存在
-            ValueError: 项目不存在
+            ValueError: 知识库不存在
         """
         source_dir = Path(source_dir)
         if not source_dir.is_dir():
             raise FileNotFoundError(f"目录不存在: {source_dir}")
 
-        proj = self.db.get_project(project_id)
-        if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+        kb = self.db.get_kb(kb_id)
+        if not kb:
+            raise ValueError(f"知识库不存在: {kb_id}")
 
         logger.info("[import_raw_files] 开始扫描目录: %s", source_dir)
         stats = {"imported": 0, "skipped": 0, "errors": 0}
@@ -147,7 +147,7 @@ class FileImporter:
                 if ext == ".md":
                     md_content = filepath.read_text(encoding="utf-8", errors="replace")
                     rel_path = f"raw/{rel.as_posix()}"
-                    self.db.add_file(project_id, rel_path, md_content)
+                    self.db.add_file(kb_id, rel_path, md_content)
                     logger.info("  [导入] %s -> %s", filepath.relative_to(source_dir).as_posix(), rel_path)
                     stats["imported"] += 1
                 else:
@@ -158,7 +158,7 @@ class FileImporter:
                         stats["skipped"] += 1
                         continue
                     rel_path = f"raw/{rel.with_suffix('.md').as_posix()}"
-                    self.db.add_file(project_id, rel_path, md_content)
+                    self.db.add_file(kb_id, rel_path, md_content)
                     logger.info("  [导入] %s -> %s (已转换为 Markdown)", filepath.relative_to(source_dir).as_posix(), rel_path)
                     stats["imported"] += 1
             except Exception as e:
@@ -168,11 +168,11 @@ class FileImporter:
         logger.info("[import_raw_files] 完成: 导入 %d, 跳过 %d, 错误 %d", stats['imported'], stats['skipped'], stats['errors'])
         return stats
 
-    def add_raw_content(self, project_id: int, filename: str, content: str | bytes) -> int:
+    def add_raw_content(self, kb_id: int, filename: str, content: str | bytes) -> int:
         """添加单个原始文件内容到 SQLite。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             filename: 文件名（含扩展名）
             content: 文件内容（文本或字节）
 
@@ -180,7 +180,7 @@ class FileImporter:
             新创建的文件记录 ID
         """
         rel_path = f"raw/{filename}"
-        return self.db.add_file(project_id, rel_path, content)
+        return self.db.add_file(kb_id, rel_path, content)
 
     @staticmethod
     def convert_to_md(content_bytes: bytes, filename: str) -> str | None:

@@ -105,18 +105,18 @@ class GraphWorkflow:
 
     # ── 图谱缓存（SQLite-backed） ──────────────────────────────────
 
-    def load_graph_cache(self, project_id: int) -> dict:
+    def load_graph_cache(self, kb_id: int) -> dict:
         """从 SQLite 加载 SHA256 内容缓存。
 
         缓存记录每个页面的内容哈希和已推理的边，用于增量推理。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
             缓存字典，键为页面路径，值为 ``{"hash": ..., "edges": [...]}``
         """
-        text = self.db.get_file_text_by_path(project_id, GRAPH_CACHE_PATH)
+        text = self.db.get_file_text_by_path(kb_id, GRAPH_CACHE_PATH)
         if text:
             try:
                 return json.loads(text)
@@ -124,30 +124,30 @@ class GraphWorkflow:
                 return {}
         return {}
 
-    def save_graph_cache(self, project_id: int, cache: dict) -> None:
+    def save_graph_cache(self, kb_id: int, cache: dict) -> None:
         """将 SHA256 内容缓存保存到 SQLite。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             cache: 缓存字典
         """
         content = json.dumps(cache, indent=2, ensure_ascii=False)
-        self.db.add_file(project_id, GRAPH_CACHE_PATH, content)
+        self.db.add_file(kb_id, GRAPH_CACHE_PATH, content)
 
-    def load_checkpoint_edges(self, project_id: int) -> tuple[list[dict], set[str]]:
+    def load_checkpoint_edges(self, kb_id: int) -> tuple[list[dict], set[str]]:
         """从 SQLite 加载之前推理的边和已完成的页面集合。
 
         用于 checkpoint/resume 机制，避免重复推理。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
             (已推理边列表, 已完成页面 ID 集合) 元组
         """
         edges = []
         completed = set()
-        text = self.db.get_file_text_by_path(project_id, GRAPH_CHECKPOINT_PATH)
+        text = self.db.get_file_text_by_path(kb_id, GRAPH_CHECKPOINT_PATH)
         if text:
             for line in text.splitlines():
                 if not line.strip():
@@ -173,38 +173,38 @@ class GraphWorkflow:
                     continue
         return edges, completed
 
-    def append_checkpoint_edge(self, project_id: int, page_id_str: str, edges: list[dict]) -> None:
+    def append_checkpoint_edge(self, kb_id: int, page_id_str: str, edges: list[dict]) -> None:
         """将一个页面的推理边追加到 SQLite checkpoint。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             page_id_str: 页面 ID 字符串
             edges: 该页面推理出的边列表
         """
-        existing_text = self.db.get_file_text_by_path(project_id, GRAPH_CHECKPOINT_PATH) or ""
+        existing_text = self.db.get_file_text_by_path(kb_id, GRAPH_CHECKPOINT_PATH) or ""
         record = {"page_id": page_id_str, "edges": edges, "ts": date.today().isoformat()}
         new_text = existing_text + json.dumps(record, ensure_ascii=False) + "\n"
-        self.db.add_file(project_id, GRAPH_CHECKPOINT_PATH, new_text)
+        self.db.add_file(kb_id, GRAPH_CHECKPOINT_PATH, new_text)
 
-    def clear_graph_cache(self, project_id: int) -> None:
-        """清除项目的所有图谱构建缓存。
+    def clear_graph_cache(self, kb_id: int) -> None:
+        """清除知识库的所有图谱构建缓存。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
         """
-        self.db.delete_file_by_path(project_id, GRAPH_CACHE_PATH)
-        self.db.delete_file_by_path(project_id, GRAPH_CHECKPOINT_PATH)
+        self.db.delete_file_by_path(kb_id, GRAPH_CACHE_PATH)
+        self.db.delete_file_by_path(kb_id, GRAPH_CHECKPOINT_PATH)
 
     # ── 幽灵枢纽检测 ───────────────────────────────────────────────
 
-    def find_phantom_hubs(self, project_id: int, pages: list[dict], min_refs: int = 2) -> list[dict]:
+    def find_phantom_hubs(self, kb_id: int, pages: list[dict], min_refs: int = 2) -> list[dict]:
         """查找幽灵枢纽（被多个页面引用但不存在的页面）。
 
         这些是页面创建的强烈信号——多个页面通过 wikilink 引用了
         某个概念/实体，但该页面尚未创建。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
             min_refs: 最小引用次数阈值
 
@@ -216,7 +216,7 @@ class GraphWorkflow:
         }
         refs: dict[str, set[str]] = {}
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             links = extract_wikilinks(content)
             src = p["relative_path"].replace("wiki/", "").replace(".md", "")
             for link in links:
@@ -238,7 +238,7 @@ class GraphWorkflow:
 
     # ── 图谱健康报告 ───────────────────────────────────────────────
 
-    def generate_graph_report(self, project_id: int, nodes: list[dict], edges: list[dict],
+    def generate_graph_report(self, kb_id: int, nodes: list[dict], edges: list[dict],
                                communities: dict[str, int]) -> str:
         """生成结构化的图谱健康报告。
 
@@ -250,7 +250,7 @@ class GraphWorkflow:
             - 社区概览
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             nodes: 节点列表
             edges: 边列表
             communities: 节点 ID 到社区编号的映射
@@ -381,7 +381,7 @@ class GraphWorkflow:
 
     # ── 语义推理边 ─────────────────────────────────────────────────
 
-    def build_inferred_edges(self, project_id: int, pages: list[dict], existing_edges: list[dict],
+    def build_inferred_edges(self, kb_id: int, pages: list[dict], existing_edges: list[dict],
                               infer: bool = True, clean: bool = False, resume: bool = True) -> list[dict]:
         """通过 LLM 推理构建隐式语义边。
 
@@ -389,7 +389,7 @@ class GraphWorkflow:
         支持 checkpoint/resume 机制和内容缓存，避免重复推理。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
             existing_edges: 已提取的显式边列表
             infer: 是否执行推理；若为 ``False`` 直接返回空列表
@@ -403,20 +403,20 @@ class GraphWorkflow:
             return []
 
         if clean:
-            self.clear_graph_cache(project_id)
+            self.clear_graph_cache(kb_id)
             logger.info("  cache cleared — rebuilding from scratch")
 
-        checkpoint_edges, completed_ids = self.load_checkpoint_edges(project_id)
+        checkpoint_edges, completed_ids = self.load_checkpoint_edges(kb_id)
         if not resume:
             checkpoint_edges, completed_ids = [], set()
 
         new_edges = list(checkpoint_edges)
 
-        cache = self.load_graph_cache(project_id)
+        cache = self.load_graph_cache(kb_id)
 
         changed_pages = []
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             h = sha256(content)
             pid = p["relative_path"].replace("wiki/", "").replace(".md", "")
             entry = cache.get(p["relative_path"])
@@ -459,7 +459,7 @@ class GraphWorkflow:
         )
 
         for i, p in enumerate(changed_pages, 1):
-            full_content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            full_content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             src = p["relative_path"].replace("wiki/", "").replace(".md", "")
             global_idx = already_done + i
             logger.info("    [%d/%d] Inferring for '%s'...", global_idx, grand_total, src)
@@ -542,7 +542,7 @@ class GraphWorkflow:
                     "hash": sha256(full_content),
                     "edges": valid_rels,
                 }
-                self.append_checkpoint_edge(project_id, src, page_edges)
+                self.append_checkpoint_edge(kb_id, src, page_edges)
                 logger.info("-> Found %d edges.", len(page_edges))
             except (json.JSONDecodeError, TypeError, ValueError) as jde:
                 logger.warning("-> Invalid JSON: %s", str(jde)[:60])
@@ -550,7 +550,7 @@ class GraphWorkflow:
                 err_msg = str(e).replace('\n', ' ')[:80]
                 logger.error("-> %s", err_msg)
 
-        self.save_graph_cache(project_id, cache)
+        self.save_graph_cache(kb_id, cache)
         return new_edges
 
     # ── 边去重 ─────────────────────────────────────────────────────
@@ -1134,13 +1134,13 @@ applyFilters();
 
     def build_graph(
         self,
-        project_id: int,
+        kb_id: int,
         infer: bool = False,
         clean: bool = False,
         resume: bool = True,
         report: bool = True,
     ) -> dict[str, Any]:
-        """为项目构建知识图谱（完整版）。
+        """为知识库构建知识图谱（完整版）。
 
         流程：
             1. 从 Wiki 页面提取节点和显式边（wikilink → EXTRACTED 边）
@@ -1151,7 +1151,7 @@ applyFilters();
             6. （可选）生成图谱健康报告
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             infer: 是否进行语义推理（需要额外 LLM 调用）
             clean: 是否清除推理缓存
             resume: 是否从上次中断处继续（checkpoint/resume）
@@ -1168,13 +1168,13 @@ applyFilters();
             - ``report``: 图谱健康报告（仅 ``report=True`` 时）
 
         Raises:
-            ValueError: 项目不存在
+            ValueError: 知识库不存在
         """
-        proj = self.db.get_project(project_id)
+        kb = self.db.get_kb(kb_id)
         if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+            raise ValueError(f"知识库不存在: {kb_id}")
 
-        wiki_files = self.db.list_files(project_id, "wiki/")
+        wiki_files = self.db.list_files(kb_id, "wiki/")
         pages = [
             f for f in wiki_files
             if Path(f["relative_path"]).name
@@ -1187,7 +1187,7 @@ applyFilters();
         # Pass 1: 提取节点
         nodes = []
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             node_type = "unknown"
             m = re.search(r"^type:\s*(\S+)", content, re.MULTILINE)
             if m:
@@ -1220,7 +1220,7 @@ applyFilters();
         edges = []
         seen = set()
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             src = p["relative_path"].replace("wiki/", "").replace(".md", "")
             for link in extract_wikilinks(content):
                 link_stem = link.lower()
@@ -1244,7 +1244,7 @@ applyFilters();
         if infer:
             logger.info("  Pass 2: inferring semantic relationships...")
             inferred = self.build_inferred_edges(
-                project_id, pages, edges, infer=True, clean=clean, resume=resume
+                kb_id, pages, edges, infer=True, clean=clean, resume=resume
             )
             edges.extend(inferred)
             n_inf_new = len([e for e in inferred if e["type"] in ("INFERRED", "AMBIGUOUS")])
@@ -1277,17 +1277,17 @@ applyFilters();
         today = date.today().isoformat()
         graph_data = {
             "built": today,
-            "project_id": project_id,
-            "project_name": proj["name"],
+            "kb_id": kb_id,
+            "kb_name": proj["name"],
             "nodes": nodes,
             "edges": edges,
         }
 
         graph_json = json.dumps(graph_data, ensure_ascii=False, indent=2)
-        self.db.add_file(project_id, "graph/graph.json", graph_json)
+        self.db.add_file(kb_id, "graph/graph.json", graph_json)
 
         graph_html = self.render_graph_html(nodes, edges)
-        self.db.add_file(project_id, "graph/graph.html", graph_html)
+        self.db.add_file(kb_id, "graph/graph.html", graph_html)
 
         n_ext = len([e for e in edges if e['type'] == 'EXTRACTED'])
         n_inf = len([e for e in edges if e['type'] in ('INFERRED', 'AMBIGUOUS')])
@@ -1298,21 +1298,21 @@ applyFilters();
         # 幽灵枢纽
         phantom_hubs = []
         if report:
-            phantom_hubs = self.find_phantom_hubs(project_id, pages)
+            phantom_hubs = self.find_phantom_hubs(kb_id, pages)
             if phantom_hubs:
                 logger.info("  phantom hubs: %d pages referenced but not created", len(phantom_hubs))
 
         # 报告
         report_text = ""
         if report:
-            report_text = self.generate_graph_report(project_id, nodes, edges, communities)
+            report_text = self.generate_graph_report(kb_id, nodes, edges, communities)
             if phantom_hubs:
                 report_text += "\n## 👻 Phantom Hubs (Referenced but Non-existent)\n"
                 report_text += "These pages are linked by 2+ existing pages but don't exist yet — strong signals for page creation:\n\n"
                 for ph in phantom_hubs:
                     report_text += f"- **{ph['name']}** (referenced by {ph['ref_count']} pages: {', '.join(ph['referenced_by'][:3])})\n"
                 report_text += "\n"
-            self.db.add_file(project_id, "graph/graph-report.md", report_text)
+            self.db.add_file(kb_id, "graph/graph-report.md", report_text)
             logger.info("  saved: graph/graph-report.md")
 
         return {

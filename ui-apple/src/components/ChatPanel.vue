@@ -95,7 +95,7 @@ import { ref, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
-  currentProjectId: { type: [String, Number], default: null },
+  currentKbId: { type: [String, Number], default: null },
   queryApi: { type: Function, required: true },
   openWikiLink: { type: Function, default: null }
 })
@@ -112,8 +112,8 @@ function rendered(text) {
 }
 
 function togglePanel() {
-  if (!props.currentProjectId) {
-    alert('Please select a project first')
+  if (!props.currentKbId) {
+    alert('Please select a kb first')
     return
   }
   isOpen.value = !isOpen.value

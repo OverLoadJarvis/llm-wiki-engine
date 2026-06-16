@@ -1,10 +1,10 @@
 <template>
   <div>
-    <!-- Create Project Modal -->
+    <!-- Create KB Modal -->
     <div v-if="active === 'create'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal">
-        <h3>New Project</h3>
-        <input type="text" v-model="createName" placeholder="Project name" @keydown.enter="doCreate" />
+        <h3>New KB</h3>
+        <input type="text" v-model="createName" placeholder="KB name" @keydown.enter="doCreate" />
         <input type="text" v-model="createDesc" placeholder="Description (optional)" @keydown.enter="doCreate" />
         <div class="modal-actions">
           <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
@@ -69,34 +69,34 @@
       </div>
     </div>
 
-    <!-- Import Project Modal -->
-    <div v-if="active === 'import-project'" class="modal-overlay" @click.self="$emit('close')">
+    <!-- Import KB Modal -->
+    <div v-if="active === 'import-kb'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal">
-        <h3>Import Project</h3>
+        <h3>Import KB</h3>
         <p class="modal-desc">
-          Upload a project ZIP package. The file name will be used as the new project name.
+          Upload a KB ZIP package. The file name will be used as the new KB name.
         </p>
         <div class="import-section">
           <label>Select ZIP File</label>
-          <input type="file" ref="projectZipInput" accept=".zip" @change="onProjectZipSelected" />
-          <span v-if="projectZipFileName" class="file-selected">Selected: {{ projectZipFileName }}</span>
+          <input type="file" ref="kbZipInput" accept=".zip" @change="onKbZipSelected" />
+          <span v-if="kbZipFileName" class="file-selected">Selected: {{ kbZipFileName }}</span>
         </div>
         <div class="modal-actions">
           <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
-          <button class="btn" @click="doImportProject">Import</button>
+          <button class="btn" @click="doImportKb">Import</button>
         </div>
       </div>
     </div>
 
-    <!-- Delete Project Confirm Modal -->
+    <!-- Delete KB Confirm Modal -->
     <div v-if="active === 'delete'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal">
-        <h3>Delete Project</h3>
+        <h3>Delete KB</h3>
         <p class="modal-desc">
-          Are you sure you want to delete <strong class="danger-text">{{ projectName }}</strong>?
+          Are you sure you want to delete <strong class="danger-text">{{ kbName }}</strong>?
         </p>
         <p class="modal-warning">
-          This action will <strong class="danger-text">permanently delete</strong> the project and all associated files. This cannot be undone.
+          This action will <strong class="danger-text">permanently delete</strong> the KB and all associated files. This cannot be undone.
         </p>
         <div class="modal-actions">
           <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
@@ -129,19 +129,19 @@ import { renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
   active: { type: String, default: '' },
-  projectName: { type: String, default: '' },
+  kbName: { type: String, default: '' },
   queryApi: { type: Function, required: true },
   createApi: { type: Function, required: true },
   deleteApi: { type: Function, required: true },
   importApi: { type: Function, required: true },
   importZipApi: { type: Function, required: true },
-  importProjectApi: { type: Function, required: true },
+  importKbApi: { type: Function, required: true },
   lintApi: { type: Function, required: true },
   instructionApi: { type: Function, required: true },
   setInstructionApi: { type: Function, required: true }
 })
 
-const emit = defineEmits(['close', 'project-created', 'project-deleted', 'files-imported', 'project-imported'])
+const emit = defineEmits(['close', 'kb-created', 'kb-deleted', 'files-imported', 'kb-imported'])
 
 // ── Create ────────────────────────────────────────────────────
 const createName = ref('')
@@ -151,7 +151,7 @@ async function doCreate() {
   if (!createName.value.trim()) return
   try {
     const result = await props.createApi({ name: createName.value.trim(), description: createDesc.value.trim() })
-    emit('project-created', result.id || result)
+    emit('kb-created', result.id || result)
     createName.value = ''
     createDesc.value = ''
   } catch (err) {
@@ -163,7 +163,7 @@ async function doCreate() {
 async function doDelete() {
   try {
     await props.deleteApi()
-    emit('project-deleted')
+    emit('kb-deleted')
   } catch (err) {
     alert(`Delete failed: ${err.message}`)
   }
@@ -246,28 +246,28 @@ async function doImport() {
   }
 }
 
-// ── Import Project ────────────────────────────────────────────
-const projectZipInput = ref(null)
-const projectZipFileName = ref('')
+// ── Import KB ─────────────────────────────────────────────────
+const kbZipInput = ref(null)
+const kbZipFileName = ref('')
 
-function onProjectZipSelected(e) {
-  projectZipFileName.value = e.target.files[0]?.name || ''
+function onKbZipSelected(e) {
+  kbZipFileName.value = e.target.files[0]?.name || ''
 }
 
-async function doImportProject() {
+async function doImportKb() {
   try {
-    if (!projectZipInput.value?.files[0]) {
+    if (!kbZipInput.value?.files[0]) {
       alert('Please select a ZIP file')
       return
     }
     const formData = new FormData()
-    formData.append('file', projectZipInput.value.files[0])
-    const result = await props.importProjectApi(formData)
-    emit('project-imported', result.id || result)
-    projectZipFileName.value = ''
-    if (projectZipInput.value) projectZipInput.value.value = ''
+    formData.append('file', kbZipInput.value.files[0])
+    const result = await props.importKbApi(formData)
+    emit('kb-imported', result.id || result)
+    kbZipFileName.value = ''
+    if (kbZipInput.value) kbZipInput.value.value = ''
   } catch (err) {
-    alert(`Import project failed: ${err.message}`)
+    alert(`Import kb failed: ${err.message}`)
   }
 }
 

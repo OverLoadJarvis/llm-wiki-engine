@@ -22,7 +22,7 @@
     <!-- Tree -->
     <div class="tree-container" ref="treeContainerRef">
       <div v-if="!hasTree" class="empty-state">
-        <p>Select a project to view files</p>
+        <p>Select a kb to view files</p>
       </div>
       <div v-else-if="Object.keys(visibleTree).length === 0" class="empty-state">
         <p>No matching files</p>

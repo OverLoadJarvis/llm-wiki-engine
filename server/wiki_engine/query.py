@@ -37,17 +37,17 @@ class QueryWorkflow:
     def __init__(self, db: WikiStorage) -> None:
         self.db = db
 
-    def query(self, project_id: int, question: str, save: bool = False) -> str:
-        """查询项目知识库。
+    def query(self, kb_id: int, question: str, save: bool = False) -> str:
+        """查询知识库知识库。
 
         流程：
-            1. 验证项目存在且知识库非空
+            1. 验证知识库存在且知识库非空
             2. 从索引中检索与问题相关的页面
             3. 将相关页面内容发送给 LLM，综合生成回答
             4. （可选）将回答保存为 synthesis 页面
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             question: 查询问题
             save: 是否将结果保存为 synthesis 页面
 
@@ -55,34 +55,34 @@ class QueryWorkflow:
             LLM 综合生成的回答（Markdown 格式）
 
         Raises:
-            ValueError: 项目不存在
+            ValueError: 知识库不存在
         """
-        proj = self.db.get_project(project_id)
+        kb = self.db.get_kb(kb_id)
         if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+            raise ValueError(f"知识库不存在: {kb_id}")
 
-        wiki_files = self.db.list_files(project_id, "wiki/")
+        wiki_files = self.db.list_files(kb_id, "wiki/")
         if not wiki_files:
             return "知识库为空。请先使用 build_knowledge_base() 构建知识库。"
 
         today = date.today().isoformat()
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
 
-        relevant_pages = self.find_relevant_pages(project_id, question)
+        relevant_pages = self.find_relevant_pages(kb_id, question)
 
         pages_context = ""
         for p in relevant_pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"])
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"])
             if content:
                 pages_context += f"\n\n### {p['relative_path']}\n{content[:3000]}"
 
         if not pages_context:
-            index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+            index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
             pages_context = f"\n\n### wiki/index.md\n{index_content[:3000]}"
 
         logger.info("  从 %d 个相关页面综合回答...", len(relevant_pages))
         prompt = QUERY_ANSWER_PROMPT.format(
-            project_name=proj['name'],
+            kb_name=proj['name'],
             schema=schema,
             pages_context=pages_context,
             question=question,
@@ -90,33 +90,33 @@ class QueryWorkflow:
         answer = call_llm(prompt, max_tokens=8192)
 
         if save:
-            self._save_synthesis(project_id, question, answer, today)
+            self._save_synthesis(kb_id, question, answer, today)
 
         append_log(
             self.db,
-            project_id,
+            kb_id,
             f"## [{today}] query | {question[:80]}\n\n从 {len(relevant_pages)} 个页面综合回答。",
         )
 
         return answer
 
-    def query_stream(self, project_id: int, question: str):
-        """流式查询项目知识库。
+    def query_stream(self, kb_id: int, question: str):
+        """流式查询知识库知识库。
 
         与 query() 逻辑相同，但通过生成器逐块 yield LLM 回答。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             question: 查询问题
 
         Yields:
             str: LLM 回答的文本块
         """
-        proj = self.db.get_project(project_id)
+        kb = self.db.get_kb(kb_id)
         if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+            raise ValueError(f"知识库不存在: {kb_id}")
 
-        wiki_files = self.db.list_files(project_id, "wiki/")
+        wiki_files = self.db.list_files(kb_id, "wiki/")
         if not wiki_files:
             yield "知识库为空。请先使用 build_knowledge_base() 构建知识库。"
             return
@@ -124,21 +124,21 @@ class QueryWorkflow:
         today = date.today().isoformat()
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
 
-        relevant_pages = self.find_relevant_pages(project_id, question)
+        relevant_pages = self.find_relevant_pages(kb_id, question)
 
         pages_context = ""
         for p in relevant_pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"])
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"])
             if content:
                 pages_context += f"\n\n### {p['relative_path']}\n{content[:3000]}"
 
         if not pages_context:
-            index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+            index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
             pages_context = f"\n\n### wiki/index.md\n{index_content[:3000]}"
 
         logger.info("  从 %d 个相关页面流式综合回答...", len(relevant_pages))
         prompt = QUERY_ANSWER_PROMPT.format(
-            project_name=proj['name'],
+            kb_name=proj['name'],
             schema=schema,
             pages_context=pages_context,
             question=question,
@@ -151,14 +151,14 @@ class QueryWorkflow:
 
         append_log(
             self.db,
-            project_id,
+            kb_id,
             f"## [{today}] query | {question[:80]}\n\n从 {len(relevant_pages)} 个页面综合回答。",
         )
 
     def find_relevant_pages(
-        self, project_id: int, question: str
+        self, kb_id: int, question: str
     ) -> list[dict[str, Any]]:
-        """从项目 Wiki 页面中找到与问题相关的页面。
+        """从知识库 Wiki 页面中找到与问题相关的页面。
 
         采用两阶段检索策略：
             1. **关键词匹配**：从 index.md 中提取链接，用 bigram（中文）
@@ -169,13 +169,13 @@ class QueryWorkflow:
         始终将 overview.md 包含在结果中。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             question: 查询问题
 
         Returns:
             相关页面记录列表，最多 15 个
         """
-        index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+        index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
 
         md_links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", index_content)
         question_lower = question.lower()
@@ -200,11 +200,11 @@ class QueryWorkflow:
 
             if matched:
                 wiki_path = f"wiki/{href}"
-                f = self.db.get_file_by_path(project_id, wiki_path)
+                f = self.db.get_file_by_path(kb_id, wiki_path)
                 if f and f not in relevant:
                     relevant.append(f)
 
-        overview = self.db.get_file_by_path(project_id, "wiki/overview.md")
+        overview = self.db.get_file_by_path(kb_id, "wiki/overview.md")
         if overview and overview not in relevant:
             relevant.insert(0, overview)
 
@@ -220,7 +220,7 @@ class QueryWorkflow:
                 paths = json.loads(raw)
                 for p in paths:
                     wiki_path = f"wiki/{p}"
-                    f = self.db.get_file_by_path(project_id, wiki_path)
+                    f = self.db.get_file_by_path(kb_id, wiki_path)
                     if f and f not in relevant:
                         relevant.append(f)
             except (json.JSONDecodeError, TypeError):
@@ -229,12 +229,12 @@ class QueryWorkflow:
         return relevant[:15]
 
     def _save_synthesis(
-        self, project_id: int, question: str, answer: str, today: str
+        self, kb_id: int, question: str, answer: str, today: str
     ) -> None:
         """将查询回答保存为 synthesis 页面并更新索引。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             question: 原始问题
             answer: LLM 生成的回答
             today: 日期字符串（YYYY-MM-DD）
@@ -252,11 +252,11 @@ last_updated: {today}
 ---
 
 """
-        self.db.add_file(project_id, synth_path, frontmatter + answer)
+        self.db.add_file(kb_id, synth_path, frontmatter + answer)
 
-        index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+        index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
         entry = f"- [{question[:60]}](syntheses/{slug}.md) — synthesis"
         if "## 综合" in (index_content or ""):
             index_content = index_content.replace("## 综合\n", f"## 综合\n{entry}\n")
-            self.db.add_file(project_id, "wiki/index.md", index_content)
+            self.db.add_file(kb_id, "wiki/index.md", index_content)
         logger.info("  已保存到: %s", synth_path)

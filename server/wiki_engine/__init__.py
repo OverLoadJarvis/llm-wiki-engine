@@ -4,7 +4,7 @@
 
 模块结构:
     wiki_engine.constants   — 全局常量与配置
-    wiki_engine.projects    — 项目管理与文件导入
+    wiki_engine.kbs         — 知识库管理与文件导入
     wiki_engine.ingest      — 知识库构建与摄入工作流
     wiki_engine.query       — 知识库查询工作流
     wiki_engine.health      — 健康检查与代码检查工作流
@@ -17,10 +17,10 @@ Usage:
     from wiki_engine import LLMWikiEngine
 
     engine = LLMWikiEngine("storage/wiki.db")
-    pid = engine.create_project("my-project", "企业文档知识库")
-    engine.import_raw_files(pid, "/path/to/docs")
-    result = engine.build_knowledge_base(pid)
-    answer = engine.query(pid, "这个项目的主要内容是什么?")
+    kid = engine.create_kb("my-kb", "企业文档知识库")
+    engine.import_raw_files(kid, "/path/to/docs")
+    result = engine.build_knowledge_base(kid)
+    answer = engine.query(kid, "这个知识库的主要内容是什么?")
 """
 
 from wiki_engine.engine import LLMWikiEngine

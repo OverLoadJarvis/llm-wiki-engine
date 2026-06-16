@@ -1,14 +1,14 @@
 <template>
   <div class="status-bar">
     <span class="status-text">{{ statusText }}</span>
-    <span class="status-project">{{ statusProject }}</span>
+    <span class="status-kb">{{ statusKb }}</span>
   </div>
 </template>
 
 <script setup>
 defineProps({
   statusText: { type: String, default: 'Ready' },
-  statusProject: { type: String, default: '' }
+  statusKb: { type: String, default: '' }
 })
 </script>
 
@@ -36,7 +36,7 @@ defineProps({
   white-space: nowrap;
 }
 
-.status-project {
+.status-kb {
   flex-shrink: 0;
   margin-left: 16px;
   color: var(--text-secondary);

@@ -2,17 +2,17 @@
   <div class="app-shell">
     <!-- Top Navigation Bar -->
     <Topbar
-      :projects="projects"
-      :selected-project-id="currentProjectId"
-      @select-project="onSelectProject"
-      @create-project="openModal('create')"
-      @delete-project="openModal('delete')"
-      @import-project="openModal('import-project')"
+      :kbs="kbs"
+      :selected-kb-id="currentKbId"
+      @select-kb="onSelectKb"
+      @create-kb="openModal('create')"
+      @delete-kb="openModal('delete')"
+      @import-kb="openModal('import-kb')"
       @import-files="openModal('import')"
       @build-knowledge-base="buildKnowledgeBase"
       @build-graph="buildGraph"
-      @lint-project="openModal('lint')"
-      @export-project="exportProject"
+      @lint-kb="openModal('lint')"
+      @export-kb="exportKb"
       @show-query="openModal('query')"
       @set-instruction="openModal('instruction')"
     />
@@ -21,7 +21,7 @@
     <div class="main-layout">
       <!-- Sidebar -->
       <Sidebar
-        v-if="currentProjectId"
+        v-if="currentKbId"
         :tree="fileTree"
         :file-count="fileCount"
         :active-path="currentFilePath"
@@ -35,7 +35,7 @@
           <div class="toolbar-left">
             <span class="toolbar-title" v-if="currentView === 'graph'">Knowledge Graph</span>
             <span class="toolbar-title" v-else>{{ currentFilePath || 'Select a file' }}</span>
-            <span class="badge" v-if="currentProjectName">{{ currentProjectName }}</span>
+            <span class="badge" v-if="currentKbName">{{ currentKbName }}</span>
           </div>
 
           <div class="toolbar-center" v-if="currentView === 'graph'">
@@ -77,7 +77,7 @@
             v-else-if="currentView === 'file' && currentFileContent !== null"
             :file-path="currentFilePath"
             :content="currentFileContent"
-            :project-id="currentProjectId"
+            :kb-id="currentKbId"
             @open-link="openWikiLink"
             @save-file="onSaveFile"
           />
@@ -102,11 +102,11 @@
     </div>
 
     <!-- Status Bar -->
-    <StatusBar :status-text="statusText" :status-project="statusProject" />
+    <StatusBar :status-text="statusText" :status-kb="statusKb" />
 
     <!-- Chat Panel -->
     <ChatPanel
-      :current-project-id="currentProjectId"
+      :current-kb-id="currentKbId"
       :query-api="queryApi"
       :open-wiki-link="openWikiLink"
     />
@@ -114,21 +114,21 @@
     <!-- Modal Group -->
     <ModalGroup
       :active="activeModal"
-      :project-name="currentProjectName"
+      :kb-name="currentKbName"
       :query-api="queryApi"
-      :create-api="createProjectApi"
-      :delete-api="deleteProjectApi"
+      :create-api="createKbApi"
+      :delete-api="deleteKbApi"
       :import-api="importFilesApi"
       :import-zip-api="importZipApi"
-      :import-project-api="importProjectApi"
-      :lint-api="lintProjectApi"
+      :import-kb-api="importKbApi"
+      :lint-api="lintKbApi"
       :instruction-api="getInstructionApi"
       :set-instruction-api="setInstructionApi"
       @close="activeModal = ''"
-      @project-created="onProjectCreated"
-      @project-deleted="onProjectDeleted"
+      @kb-created="onKbCreated"
+      @kb-deleted="onKbDeleted"
       @files-imported="onFilesImported"
-      @project-imported="onProjectImported"
+      @kb-imported="onKbImported"
     />
   </div>
 </template>
@@ -146,9 +146,9 @@ import StatusBar from './components/StatusBar.vue'
 import { api, apiText, apiDownload, apiUpload } from './utils/api.js'
 
 // ── State ─────────────────────────────────────────────────────
-const projects = ref([])
-const currentProjectId = ref(null)
-const currentProjectName = ref('')
+const kbs = ref([])
+const currentKbId = ref(null)
+const currentKbName = ref('')
 const fileTree = ref(null)
 const fileCount = ref(0)
 const graphData = ref(null)
@@ -159,7 +159,7 @@ const currentView = ref('graph')
 const currentFilePath = ref('')
 const currentFileContent = ref(null)
 const statusText = ref('Ready')
-const statusProject = ref('')
+const statusKb = ref('')
 const activeModal = ref('')
 const selectedNode = ref(null)
 const graphViewRef = ref(null)
@@ -169,7 +169,7 @@ const graphNodeIndex = computed(() => graphViewRef.value?.nodeIndex || new Map()
 
 // ── API Wrappers ──────────────────────────────────────────────
 async function queryApi(question, onChunk) {
-  const url = `/api/projects/${currentProjectId.value}/query`
+  const url = `/api/kbs/${currentKbId.value}/query`
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -222,87 +222,87 @@ async function queryApi(question, onChunk) {
   return res.json()
 }
 
-async function createProjectApi({ name, description }) {
-  return api('/projects', {
+async function createKbApi({ name, description }) {
+  return api('/kbs', {
     method: 'POST',
     body: JSON.stringify({ name, description })
   })
 }
 
-async function deleteProjectApi() {
-  return api(`/projects/${currentProjectId.value}`, { method: 'DELETE' })
+async function deleteKbApi() {
+  return api(`/kbs/${currentKbId.value}`, { method: 'DELETE' })
 }
 
 async function importFilesApi(dirPath) {
-  return api(`/projects/${currentProjectId.value}/import`, {
+  return api(`/kbs/${currentKbId.value}/import`, {
     method: 'POST',
     body: JSON.stringify({ source_dir: dirPath })
   })
 }
 
 async function importZipApi(formData) {
-  return apiUpload(`/projects/${currentProjectId.value}/import-zip`, formData)
+  return apiUpload(`/kbs/${currentKbId.value}/import-zip`, formData)
 }
 
-async function importProjectApi(formData) {
-  return apiUpload('/projects/import', formData)
+async function importKbApi(formData) {
+  return apiUpload('/kbs/import', formData)
 }
 
-async function lintProjectApi() {
-  return api(`/projects/${currentProjectId.value}/lint`, { method: 'POST' })
+async function lintKbApi() {
+  return api(`/kbs/${currentKbId.value}/lint`, { method: 'POST' })
 }
 
 async function getInstructionApi() {
-  return api(`/projects/${currentProjectId.value}/instruction`)
+  return api(`/kbs/${currentKbId.value}/instruction`)
 }
 
 async function setInstructionApi(instruction) {
-  return api(`/projects/${currentProjectId.value}/instruction`, {
+  return api(`/kbs/${currentKbId.value}/instruction`, {
     method: 'PUT',
     body: JSON.stringify({ instruction })
   })
 }
 
-// ── Project Management ────────────────────────────────────────
-async function loadProjects() {
+// ── KB Management ─────────────────────────────────────────────
+async function loadKbs() {
   try {
-    projects.value = await api('/projects')
+    kbs.value = await api('/kbs')
   } catch (err) {
-    statusText.value = `Failed to load projects: ${err.message}`
+    statusText.value = `Failed to load kbs: ${err.message}`
   }
 }
 
-async function loadProject(pid) {
+async function loadKb(kid) {
   try {
-    const proj = await api(`/projects/${pid}`)
-    currentProjectName.value = proj.name || ''
-    statusProject.value = `Project: ${proj.name}`
+    const kb = await api(`/kbs/${kid}`)
+    currentKbName.value = kb.name || ''
+    statusKb.value = `KB: ${kb.name}`
     statusText.value = 'Loading file tree...'
-    const tree = await api(`/projects/${pid}/tree`)
+    const tree = await api(`/kbs/${kid}/tree`)
     fileTree.value = tree
-    const files = await api(`/projects/${pid}/files`).catch(() => [])
+    const files = await api(`/kbs/${kid}/files`).catch(() => [])
     fileCount.value = Array.isArray(files) ? files.length : 0
     statusText.value = 'Loading graph files...'
     try {
-      const all = await api(`/projects/${pid}/graph/files`)
+      const all = await api(`/kbs/${kid}/graph/files`)
       const graphFile = (all || []).find(f => f.relative_path && f.relative_path.toLowerCase() === 'graph.json')
       currentGraphFile.value = graphFile ? graphFile.relative_path : ''
     } catch (e) {
       currentGraphFile.value = ''
     }
     statusText.value = 'Loading graph...'
-    await loadGraph(pid)
+    await loadGraph(kid)
     statusText.value = 'Ready'
   } catch (err) {
     statusText.value = `Error: ${err.message}`
   }
 }
 
-async function loadGraph(pid) {
+async function loadGraph(kid) {
   graphLoading.value = true
   try {
     const queryParam = currentGraphFile.value ? `?file=${encodeURIComponent(currentGraphFile.value)}` : ''
-    const data = await api(`/projects/${pid}/graph${queryParam}`)
+    const data = await api(`/kbs/${kid}/graph${queryParam}`)
     graphData.value = data
   } catch (err) {
     graphData.value = null
@@ -318,23 +318,23 @@ function resetView() {
   currentFileContent.value = null
   selectedNode.value = null
   currentGraphFile.value = ''
-  statusProject.value = ''
+  statusKb.value = ''
 }
 
-async function onSelectProject(pid) {
-  currentProjectId.value = pid
-  if (pid === null || pid === '' || pid === undefined) {
+async function onSelectKb(kid) {
+  currentKbId.value = kid
+  if (kid === null || kid === '' || kid === undefined) {
     resetView()
     return
   }
-  await loadProject(pid)
+  await loadKb(kid)
 }
 
 async function openFile(relPath) {
   currentFilePath.value = relPath
   try {
     statusText.value = `Loading: ${relPath}`
-    const content = await apiText(`/projects/${currentProjectId.value}/files/${encodeURIComponent(relPath)}`)
+    const content = await apiText(`/kbs/${currentKbId.value}/files/${encodeURIComponent(relPath)}`)
     currentFileContent.value = content
     currentView.value = 'file'
     statusText.value = `Opened: ${relPath}`
@@ -376,23 +376,23 @@ function findNodeByTarget(target) {
 }
 
 async function openWikiLink(target) {
-  if (!currentProjectId.value) return
+  if (!currentKbId.value) return
   const node = findNodeByTarget(target)
   const filePath = node?.path || target
   await openFile(filePath)
 }
 
 async function onSaveFile({ filePath, content }) {
-  if (!currentProjectId.value) return
+  if (!currentKbId.value) return
   statusText.value = 'Saving...'
   try {
-    await api(`/projects/${currentProjectId.value}/files/${encodeURIComponent(filePath)}`, {
+    await api(`/kbs/${currentKbId.value}/files/${encodeURIComponent(filePath)}`, {
       method: 'PUT',
       body: JSON.stringify({ content })
     })
     statusText.value = 'File saved'
     if (currentFilePath.value === filePath) {
-      const updated = await apiText(`/projects/${currentProjectId.value}/files/${encodeURIComponent(filePath)}`)
+      const updated = await apiText(`/kbs/${currentKbId.value}/files/${encodeURIComponent(filePath)}`)
       currentFileContent.value = updated
     }
   } catch (err) {
@@ -401,13 +401,13 @@ async function onSaveFile({ filePath, content }) {
 }
 
 async function buildKnowledgeBase() {
-  if (!currentProjectId.value) return alert('Please select a project first')
+  if (!currentKbId.value) return alert('Please select a kb first')
   if (!confirm('Build knowledge base? This may take a while.')) return
   statusText.value = 'Building knowledge base...'
   try {
-    const result = await api(`/projects/${currentProjectId.value}/build`, { method: 'POST' })
+    const result = await api(`/kbs/${currentKbId.value}/build`, { method: 'POST' })
     statusText.value = `Build complete: ${result.ingested} files ingested`
-    await loadProject(currentProjectId.value)
+    await loadKb(currentKbId.value)
   } catch (err) {
     statusText.value = `Build failed: ${err.message}`
     alert(`Build failed: ${err.message}`)
@@ -415,24 +415,24 @@ async function buildKnowledgeBase() {
 }
 
 async function buildGraph() {
-  if (!currentProjectId.value) return alert('Please select a project first')
+  if (!currentKbId.value) return alert('Please select a kb first')
   statusText.value = 'Building graph...'
   try {
-    const result = await api(`/projects/${currentProjectId.value}/graph/build`, { method: 'POST' })
+    const result = await api(`/kbs/${currentKbId.value}/graph/build`, { method: 'POST' })
     statusText.value = `Graph built: ${result.n_nodes} nodes, ${result.n_edges} edges`
-    await loadGraph(currentProjectId.value)
+    await loadGraph(currentKbId.value)
   } catch (err) {
     statusText.value = `Graph build failed: ${err.message}`
   }
 }
 
-async function exportProject() {
-  if (!currentProjectId.value) return alert('Please select a project first')
-  statusText.value = 'Exporting project...'
+async function exportKb() {
+  if (!currentKbId.value) return alert('Please select a kb first')
+  statusText.value = 'Exporting kb...'
   try {
     await apiDownload(
-      `/projects/${currentProjectId.value}/export`,
-      `${currentProjectName.value}_export.zip`
+      `/kbs/${currentKbId.value}/export`,
+      `${currentKbName.value}_export.zip`
     )
     statusText.value = 'Export complete'
   } catch (err) {
@@ -442,39 +442,39 @@ async function exportProject() {
 }
 
 function openModal(name) {
-  if (!currentProjectId.value && ['delete', 'import', 'lint', 'query'].includes(name)) {
-    alert('Please select a project first')
+  if (!currentKbId.value && ['delete', 'import', 'lint', 'query'].includes(name)) {
+    alert('Please select a kb first')
     return
   }
   activeModal.value = name
 }
 
-async function onProjectCreated(pid) {
-  await loadProjects()
-  await onSelectProject(pid)
+async function onKbCreated(kid) {
+  await loadKbs()
+  await onSelectKb(kid)
   activeModal.value = ''
 }
 
-async function onProjectDeleted() {
+async function onKbDeleted() {
   resetView()
-  currentProjectId.value = null
-  await loadProjects()
+  currentKbId.value = null
+  await loadKbs()
   activeModal.value = ''
 }
 
 async function onFilesImported() {
-  await loadProject(currentProjectId.value)
+  await loadKb(currentKbId.value)
   activeModal.value = ''
 }
 
-async function onProjectImported(pid) {
-  await loadProjects()
-  await onSelectProject(pid)
+async function onKbImported(kid) {
+  await loadKbs()
+  await onSelectKb(kid)
   activeModal.value = ''
 }
 
 onMounted(() => {
-  loadProjects()
+  loadKbs()
 })
 </script>
 

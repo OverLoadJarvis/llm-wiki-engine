@@ -41,7 +41,7 @@ class HealthWorkflow:
     # 健康检查（零 LLM 调用）
     # ══════════════════════════════════════════════════════════════
 
-    def health_check(self, project_id: int) -> dict[str, Any]:
+    def health_check(self, kb_id: int) -> dict[str, Any]:
         """结构健康检查（无 LLM 调用，纯确定性检查）。
 
         检查项：
@@ -50,25 +50,25 @@ class HealthWorkflow:
             - **日志覆盖**：源页面在 log.md 中是否有对应的 ingest 条目
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
             健康检查结果字典，包含：
             - ``date``: 检查日期
-            - ``project_name``: 项目名称
+            - ``kb_name``: 知识库名称
             - ``total_pages``: 页面总数
             - ``empty_files``: 空/存根文件列表
             - ``index_sync``: 索引同步问题
             - ``log_coverage``: 日志覆盖缺失列表
 
         Raises:
-            ValueError: 项目不存在
+            ValueError: 知识库不存在
         """
-        proj = self.db.get_project(project_id)
+        kb = self.db.get_kb(kb_id)
         if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+            raise ValueError(f"知识库不存在: {kb_id}")
 
-        wiki_files = self.db.list_files(project_id, "wiki/")
+        wiki_files = self.db.list_files(kb_id, "wiki/")
         pages = [
             f for f in wiki_files
             if Path(f["relative_path"]).name
@@ -77,20 +77,20 @@ class HealthWorkflow:
 
         return {
             "date": date.today().isoformat(),
-            "project_name": proj["name"],
+            "kb_name": proj["name"],
             "total_pages": len(pages),
-            "empty_files": self._check_empty_files(project_id, pages),
-            "index_sync": self._check_index_sync(project_id, pages),
-            "log_coverage": self._check_log_coverage(project_id),
+            "empty_files": self._check_empty_files(kb_id, pages),
+            "index_sync": self._check_index_sync(kb_id, pages),
+            "log_coverage": self._check_log_coverage(kb_id),
         }
 
     def _check_empty_files(
-        self, project_id: int, pages: list[dict], threshold: int = 100
+        self, kb_id: int, pages: list[dict], threshold: int = 100
     ) -> list[dict]:
         """检查空文件和存根文件。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
             threshold: 正文最小字节数阈值，低于此值视为存根
 
@@ -99,7 +99,7 @@ class HealthWorkflow:
         """
         results = []
         for p in pages:
-            raw = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            raw = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             body = strip_frontmatter(raw)
             if len(body) < threshold:
                 results.append({
@@ -112,12 +112,12 @@ class HealthWorkflow:
         return results
 
     def _check_index_sync(
-        self, project_id: int, pages: list[dict]
+        self, kb_id: int, pages: list[dict]
     ) -> dict[str, list[str]]:
         """检查索引与磁盘页面的同步状态。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
 
         Returns:
@@ -125,7 +125,7 @@ class HealthWorkflow:
             - ``in_index_not_on_disk``: 索引中有但磁盘上没有的路径
             - ``on_disk_not_in_index``: 磁盘上有但索引中没有的路径
         """
-        index_content = self.db.get_file_text_by_path(project_id, "wiki/index.md") or ""
+        index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
         index_links = set(re.findall(r"\[.*?\]\(([^)]+\.md)\)", index_content))
         meta_pages = {"overview.md"}
 
@@ -144,19 +144,19 @@ class HealthWorkflow:
             "on_disk_not_in_index": sorted(disk_paths - index_paths),
         }
 
-    def _check_log_coverage(self, project_id: int) -> list[dict]:
+    def _check_log_coverage(self, kb_id: int) -> list[dict]:
         """检查日志覆盖情况。
 
         对比 wiki/sources/ 下的源页面与 wiki/log.md 中的 ingest 条目，
         找出缺少日志记录的源页面。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
 
         Returns:
             缺少日志记录的源页面信息列表
         """
-        log_content = self.db.get_file_text_by_path(project_id, "wiki/log.md") or ""
+        log_content = self.db.get_file_text_by_path(kb_id, "wiki/log.md") or ""
         logged_titles = set(
             m.group(1).strip().lower()
             for m in re.finditer(
@@ -166,11 +166,11 @@ class HealthWorkflow:
             )
         )
 
-        source_files = self.db.list_files(project_id, "wiki/sources/")
+        source_files = self.db.list_files(kb_id, "wiki/sources/")
         missing = []
         for s in source_files:
             slug = Path(s["relative_path"]).stem.lower().replace("-", " ").replace("_", " ")
-            content = self.db.get_file_text_by_path(project_id, s["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, s["relative_path"]) or ""
             title_match = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', content, re.MULTILINE)
             fm_title = title_match.group(1).strip().lower() if title_match else ""
 
@@ -186,7 +186,7 @@ class HealthWorkflow:
     # 代码检查（包含 LLM 语义分析）
     # ══════════════════════════════════════════════════════════════
 
-    def lint(self, project_id: int, save: bool = False) -> str:
+    def lint(self, kb_id: int, save: bool = False) -> str:
         """内容质量检查（包含 LLM 语义分析）。
 
         检查项：
@@ -197,20 +197,20 @@ class HealthWorkflow:
             - **语义检查**（LLM）：矛盾、过时内容、数据缺口、需深化的概念
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             save: 是否将报告保存到 wiki/lint-report.md
 
         Returns:
             Markdown 格式的检查报告
 
         Raises:
-            ValueError: 项目不存在
+            ValueError: 知识库不存在
         """
-        proj = self.db.get_project(project_id)
+        kb = self.db.get_kb(kb_id)
         if not proj:
-            raise ValueError(f"项目不存在: {project_id}")
+            raise ValueError(f"知识库不存在: {kb_id}")
 
-        wiki_files = self.db.list_files(project_id, "wiki/")
+        wiki_files = self.db.list_files(kb_id, "wiki/")
         pages = [
             f for f in wiki_files
             if Path(f["relative_path"]).name
@@ -223,10 +223,10 @@ class HealthWorkflow:
         today = date.today().isoformat()
         logger.info("  检查 %d 个 wiki 页面...", len(pages))
 
-        orphans = self._find_orphans(project_id, pages)
-        broken = self._find_broken_links(project_id, pages)
-        missing_entities = self._find_missing_entities(project_id, pages)
-        sparse_pages = self._check_link_density(project_id, pages)
+        orphans = self._find_orphans(kb_id, pages)
+        broken = self._find_broken_links(kb_id, pages)
+        missing_entities = self._find_missing_entities(kb_id, pages)
+        sparse_pages = self._check_link_density(kb_id, pages)
 
         logger.info("    孤立页面: %d", len(orphans))
         logger.info("    损坏链接: %d", len(broken))
@@ -238,7 +238,7 @@ class HealthWorkflow:
         sample = pages[:20]
         pages_context = ""
         for p in sample:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             pages_context += f"\n\n### {p['relative_path']}\n{content[:1500]}"
 
         logger.info("  运行语义检查 (LLM)...")
@@ -250,7 +250,7 @@ class HealthWorkflow:
 
         report_lines = [
             f"# Wiki 检查报告 — {today}",
-            f"项目: {proj['name']}",
+            f"知识库: {proj['name']}",
             "",
             f"扫描了 {len(pages)} 个页面。",
             "",
@@ -296,24 +296,24 @@ class HealthWorkflow:
         report = "\n".join(report_lines)
 
         if save:
-            self.db.add_file(project_id, "wiki/lint-report.md", report)
+            self.db.add_file(kb_id, "wiki/lint-report.md", report)
             logger.info("  报告已保存到 wiki/lint-report.md")
 
         append_log(
             self.db,
-            project_id,
+            kb_id,
             f"## [{today}] lint | Wiki 健康检查\n\n运行了代码检查。详见 lint-report.md。",
         )
 
         return report
 
     def _find_orphans(
-        self, project_id: int, pages: list[dict]
+        self, kb_id: int, pages: list[dict]
     ) -> list[str]:
         """查找孤立页面（无入站 wikilink 的页面）。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
 
         Returns:
@@ -323,7 +323,7 @@ class HealthWorkflow:
         existing_stems = {Path(p["relative_path"]).stem.lower() for p in pages}
 
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             for link in extract_wikilinks(content):
                 link_stem = link.lower()
                 if "/" in link:
@@ -341,12 +341,12 @@ class HealthWorkflow:
         ]
 
     def _find_broken_links(
-        self, project_id: int, pages: list[dict]
+        self, kb_id: int, pages: list[dict]
     ) -> list[tuple[str, str]]:
         """查找损坏的 wikilink（指向不存在页面的链接）。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
 
         Returns:
@@ -357,7 +357,7 @@ class HealthWorkflow:
         logger.debug("existing_stems: %s", existing_stems)
         broken = []
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             for link in extract_wikilinks(content):
                 link_stem = link.lower()
                 if "/" in link:
@@ -368,12 +368,12 @@ class HealthWorkflow:
         return broken
 
     def _find_missing_entities(
-        self, project_id: int, pages: list[dict]
+        self, kb_id: int, pages: list[dict]
     ) -> list[str]:
         """查找缺失实体页面（被 3 次以上引用但没有独立页面的实体）。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
 
         Returns:
@@ -383,7 +383,7 @@ class HealthWorkflow:
         existing_stems = {Path(p["relative_path"]).stem.lower() for p in pages}
 
         for p in pages:
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             links = extract_wikilinks(content)
             for link in links:
                 link_stem = link.lower()
@@ -395,12 +395,12 @@ class HealthWorkflow:
         return [name for name, count in mention_counts.items() if count >= 3]
 
     def _check_link_density(
-        self, project_id: int, pages: list[dict], min_outbound: int = 2
+        self, kb_id: int, pages: list[dict], min_outbound: int = 2
     ) -> list[dict]:
         """检查链接密度不足的页面。
 
         Args:
-            project_id: 项目 ID
+            kb_id: 知识库 ID
             pages: 页面记录列表
             min_outbound: 最小出站链接数阈值
 
@@ -411,7 +411,7 @@ class HealthWorkflow:
         for p in pages:
             if Path(p["relative_path"]).name == "overview.md":
                 continue
-            content = self.db.get_file_text_by_path(project_id, p["relative_path"]) or ""
+            content = self.db.get_file_text_by_path(kb_id, p["relative_path"]) or ""
             links = extract_wikilinks(content)
             unique_links = set(link.lower() for link in links)
             if len(unique_links) < min_outbound:

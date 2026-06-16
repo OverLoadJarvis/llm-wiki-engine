@@ -3,7 +3,7 @@
 INGEST_PROMPT = """\
 你正在维护一个企业知识库 Wiki。处理这份源文档并将其知识整合到 Wiki 中。
 
-项目: {proj_name}
+项目: {kb_name}
 
 格式规范:
 {schema}
@@ -49,7 +49,7 @@ INGEST_PROMPT = """\
 QUERY_ANSWER_PROMPT = """\
 你正在查询一个企业知识库 Wiki。使用以下 Wiki 页面综合一个详尽的回答。使用 [[slug]] 的WikiLink语法引用来源。
 
-项目: {project_name}
+项目: {kb_name}
 
 格式规范:
 {schema}

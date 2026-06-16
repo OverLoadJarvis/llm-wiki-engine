@@ -130,6 +130,36 @@ update date: YYYY-MM-DD
 ...
 ```
 
+### 4c. Excel 表格模板
+
+**适用文件：** `wiki/sources/<slug>.md`（当源文档为 Excel 表格文件时）
+
+```markdown
+---
+title: "表格标题"
+slug: "表格-slug"
+type: source
+tags: [spreadsheet]
+update date: YYYY-MM-DD
+---
+## 表格概述
+2–4 句子总结表格的主要内容与用途。
+
+## Sheet 摘要
+- **Sheet 名称** — 该 sheet 的内容摘要
+
+## 关键数据
+- 关键数据行/列描述
+- 重要数值或统计信息
+
+## 数据关联
+- [[实体slug]] — 数据涉及的实体
+- [[概念slug]] — 数据涉及的概念
+
+## 备注
+- 数据来源、采集时间等补充说明
+```
+
 ---
 
 ## 5. 索引格式

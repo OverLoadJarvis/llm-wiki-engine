@@ -4,7 +4,7 @@ from __future__ import annotations
 """
 SQLite-backed storage for graph / raw / wiki file trees.
 
-Each "project" captures a full snapshot of the graph/, raw/, and wiki/ directories
+Each "kb" captures a full snapshot of the graph/, raw/, and wiki/ directories
 with per-file relative paths preserved.  The database supports full CRUD, full‑text
 search, directory‑tree reconstruction, and disk import/export.
 
@@ -12,11 +12,11 @@ Usage:
     from storage.db import WikiStorage
 
     db = WikiStorage("storage/wiki.db")
-    pid = db.create_project("my-wiki")
-    db.import_directory(pid, "graph")
-    db.import_directory(pid, "raw")
-    db.import_directory(pid, "wiki")
-    db.export_project(pid, "/tmp/restored-wiki")
+    kid = db.create_kb("my-kb")
+    db.import_directory(kid, "graph")
+    db.import_directory(kid, "raw")
+    db.import_directory(kid, "wiki")
+    db.export_kb(kid, "/tmp/restored-kb")
     db.close()
 """
 
@@ -64,92 +64,92 @@ class WikiStorage:
 
     def _migrate(self) -> None:
         """按需执行 schema 迁移，确保向后兼容旧数据库文件。"""
-        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(projects)").fetchall()}
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(kbs)").fetchall()}
         if "state" not in cols:
-            self.conn.execute("ALTER TABLE projects ADD COLUMN state TEXT NOT NULL DEFAULT 'unbuilt'")
+            self.conn.execute("ALTER TABLE kbs ADD COLUMN state TEXT NOT NULL DEFAULT 'unbuilt'")
             self.conn.commit()
         if "ingest_instruction" not in cols:
-            self.conn.execute("ALTER TABLE projects ADD COLUMN ingest_instruction TEXT NOT NULL DEFAULT ''")
+            self.conn.execute("ALTER TABLE kbs ADD COLUMN ingest_instruction TEXT NOT NULL DEFAULT ''")
             self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
 
-    # ── Project CRUD ──────────────────────────────────────────────────
+    # ── KB CRUD ────────────────────────────────────────────────────
 
-    def create_project(self, name: str, description: str = "") -> int:
-        """Create a new project. Returns the project id."""
+    def create_kb(self, name: str, description: str = "") -> int:
+        """Create a new kb. Returns the kb id."""
         cur = self.conn.execute(
-            "INSERT INTO projects (name, description) VALUES (?, ?)",
+            "INSERT INTO kbs (name, description) VALUES (?, ?)",
             (name, description),
         )
         self.conn.commit()
         return cur.lastrowid
 
-    def delete_project(self, project_id: int) -> bool:
-        """Delete a project and all its files. Returns True if deleted."""
+    def delete_kb(self, kb_id: int) -> bool:
+        """Delete a kb and all its files. Returns True if deleted."""
         # 先删除关联的文件记录
-        self.conn.execute("DELETE FROM files WHERE project_id = ?", (project_id,))
-        # 然后删除项目
-        cur = self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        self.conn.execute("DELETE FROM files WHERE kb_id = ?", (kb_id,))
+        # 然后删除知识库
+        cur = self.conn.execute("DELETE FROM kbs WHERE id = ?", (kb_id,))
         self.conn.commit()
         return cur.rowcount > 0
 
-    def get_project(self, project_id: int) -> dict[str, Any] | None:
+    def get_kb(self, kb_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT * FROM projects WHERE id = ?", (project_id,)
+            "SELECT * FROM kbs WHERE id = ?", (kb_id,)
         ).fetchone()
         return dict(row) if row else None
 
-    def get_project_by_name(self, name: str) -> dict[str, Any] | None:
+    def get_kb_by_name(self, name: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT * FROM projects WHERE name = ?", (name,)
+            "SELECT * FROM kbs WHERE name = ?", (name,)
         ).fetchone()
         return dict(row) if row else None
 
-    def list_projects(self) -> list[dict[str, Any]]:
+    def list_kbs(self) -> list[dict[str, Any]]:
         rows = self.conn.execute(
-            "SELECT * FROM projects ORDER BY updated_at DESC"
+            "SELECT * FROM kbs ORDER BY updated_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def rename_project(self, project_id: int, new_name: str) -> bool:
+    def rename_kb(self, kb_id: int, new_name: str) -> bool:
         cur = self.conn.execute(
-            "UPDATE projects SET name = ?, updated_at = datetime('now') WHERE id = ?",
-            (new_name, project_id),
+            "UPDATE kbs SET name = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_name, kb_id),
         )
         self.conn.commit()
         return cur.rowcount > 0
 
-    def touch_project(self, project_id: int) -> None:
-        """Update the project's updated_at timestamp."""
+    def touch_kb(self, kb_id: int) -> None:
+        """Update the kb's updated_at timestamp."""
         self.conn.execute(
-            "UPDATE projects SET updated_at = datetime('now') WHERE id = ?",
-            (project_id,),
+            "UPDATE kbs SET updated_at = datetime('now') WHERE id = ?",
+            (kb_id,),
         )
         self.conn.commit()
 
-    def set_project_state(self, project_id: int, state: str) -> bool:
-        """Set the project's state. Valid states: 'unbuilt', 'building', 'completed'."""
+    def set_kb_state(self, kb_id: int, state: str) -> bool:
+        """Set the kb's state. Valid states: 'unbuilt', 'building', 'completed'."""
         cur = self.conn.execute(
-            "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE id = ?",
-            (state, project_id),
+            "UPDATE kbs SET state = ?, updated_at = datetime('now') WHERE id = ?",
+            (state, kb_id),
         )
         self.conn.commit()
         return cur.rowcount > 0
 
-    def get_ingest_instruction(self, project_id: int) -> str:
-        """获取项目的构建指令，可能为空字符串。"""
+    def get_ingest_instruction(self, kb_id: int) -> str:
+        """获取知识库的构建指令，可能为空字符串。"""
         row = self.conn.execute(
-            "SELECT ingest_instruction FROM projects WHERE id = ?", (project_id,)
+            "SELECT ingest_instruction FROM kbs WHERE id = ?", (kb_id,)
         ).fetchone()
         return row["ingest_instruction"] if row else ""
 
-    def set_ingest_instruction(self, project_id: int, instruction: str) -> bool:
-        """设置项目的构建指令。"""
+    def set_ingest_instruction(self, kb_id: int, instruction: str) -> bool:
+        """设置知识库的构建指令。"""
         cur = self.conn.execute(
-            "UPDATE projects SET ingest_instruction = ?, updated_at = datetime('now') WHERE id = ?",
-            (instruction, project_id),
+            "UPDATE kbs SET ingest_instruction = ?, updated_at = datetime('now') WHERE id = ?",
+            (instruction, kb_id),
         )
         self.conn.commit()
         return cur.rowcount > 0
@@ -162,7 +162,7 @@ class WikiStorage:
 
     def add_file(
         self,
-        project_id: int,
+        kb_id: int,
         relative_path: str,
         content: bytes | str,
     ) -> int:
@@ -183,43 +183,43 @@ class WikiStorage:
             content_text = content if isinstance(content, str) else content_bytes.decode("utf-8", errors="replace")
 
         cur = self.conn.execute(
-            """INSERT INTO files (project_id, category, relative_path, file_name,
+            """INSERT INTO files (kb_id, category, relative_path, file_name,
                                   content, content_text, file_size, checksum)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(project_id, relative_path) DO UPDATE SET
+               ON CONFLICT(kb_id, relative_path) DO UPDATE SET
                  category     = excluded.category,
                  content      = excluded.content,
                  content_text = excluded.content_text,
                  file_size    = excluded.file_size,
                  checksum     = excluded.checksum,
                  updated_at   = datetime('now')""",
-            (project_id, category, relative_path, file_name, content_bytes, content_text, file_size, checksum),
+            (kb_id, category, relative_path, file_name, content_bytes, content_text, file_size, checksum),
         )
-        self.touch_project(project_id)
+        self.touch_kb(kb_id)
         self.conn.commit()
         return cur.lastrowid
 
-    def add_file_from_disk(self, project_id: int, filepath: str | Path) -> int:
+    def add_file_from_disk(self, kb_id: int, filepath: str | Path) -> int:
         """Read a file from disk and store it under its relative path."""
         filepath = Path(filepath)
         content = filepath.read_bytes()
-        return self.add_file(project_id, str(filepath), content)
+        return self.add_file(kb_id, str(filepath), content)
 
     def get_file(self, file_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT id, project_id, category, relative_path, file_name, content, "
+            "SELECT id, kb_id, category, relative_path, file_name, content, "
             "content_text, file_size, checksum, created_at, updated_at "
             "FROM files WHERE id = ?",
             (file_id,),
         ).fetchone()
         return dict(row) if row else None
 
-    def get_file_by_path(self, project_id: int, relative_path: str) -> dict[str, Any] | None:
+    def get_file_by_path(self, kb_id: int, relative_path: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT id, project_id, category, relative_path, file_name, content, "
+            "SELECT id, kb_id, category, relative_path, file_name, content, "
             "content_text, file_size, checksum, created_at, updated_at "
-            "FROM files WHERE project_id = ? AND relative_path = ?",
-            (project_id, relative_path),
+            "FROM files WHERE kb_id = ? AND relative_path = ?",
+            (kb_id, relative_path),
         ).fetchone()
         return dict(row) if row else None
 
@@ -229,17 +229,17 @@ class WikiStorage:
         ).fetchone()
         return row["content"] if row else None
 
-    def get_file_content_by_path(self, project_id: int, relative_path: str) -> bytes | None:
+    def get_file_content_by_path(self, kb_id: int, relative_path: str) -> bytes | None:
         row = self.conn.execute(
-            "SELECT content FROM files WHERE project_id = ? AND relative_path = ?",
-            (project_id, relative_path),
+            "SELECT content FROM files WHERE kb_id = ? AND relative_path = ?",
+            (kb_id, relative_path),
         ).fetchone()
         return row["content"] if row else None
 
-    def get_file_text_by_path(self, project_id: int, relative_path: str) -> str | None:
+    def get_file_text_by_path(self, kb_id: int, relative_path: str) -> str | None:
         row = self.conn.execute(
-            "SELECT content_text FROM files WHERE project_id = ? AND relative_path = ?",
-            (project_id, relative_path),
+            "SELECT content_text FROM files WHERE kb_id = ? AND relative_path = ?",
+            (kb_id, relative_path),
         ).fetchone()
         if row and row["content_text"] is not None:
             return row["content_text"]
@@ -267,32 +267,32 @@ class WikiStorage:
                checksum = ?, updated_at = datetime('now') WHERE id = ?""",
             (content_bytes, content_text, len(content_bytes), checksum, file_id),
         )
-        self.touch_project(existing["project_id"])
+        self.touch_kb(existing["kb_id"])
         self.conn.commit()
         return cur.rowcount > 0
 
-    def update_file_by_path(self, project_id: int, relative_path: str, content: bytes | str) -> bool:
-        existing = self.get_file_by_path(project_id, relative_path)
+    def update_file_by_path(self, kb_id: int, relative_path: str, content: bytes | str) -> bool:
+        existing = self.get_file_by_path(kb_id, relative_path)
         if not existing:
             return False
         return self.update_file(existing["id"], content)
 
     def delete_file(self, file_id: int) -> bool:
-        row = self.conn.execute("SELECT project_id FROM files WHERE id = ?", (file_id,)).fetchone()
+        row = self.conn.execute("SELECT kb_id FROM files WHERE id = ?", (file_id,)).fetchone()
         if not row:
             return False
-        pid = row["project_id"]
+        pid = row["kb_id"]
         cur = self.conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
-        self.touch_project(pid)
+        self.touch_kb(pid)
         self.conn.commit()
         return cur.rowcount > 0
 
-    def delete_file_by_path(self, project_id: int, relative_path: str) -> bool:
+    def delete_file_by_path(self, kb_id: int, relative_path: str) -> bool:
         cur = self.conn.execute(
-            "DELETE FROM files WHERE project_id = ? AND relative_path = ?",
-            (project_id, relative_path),
+            "DELETE FROM files WHERE kb_id = ? AND relative_path = ?",
+            (kb_id, relative_path),
         )
-        self.touch_project(project_id)
+        self.touch_kb(kb_id)
         self.conn.commit()
         return cur.rowcount > 0
 
@@ -300,80 +300,80 @@ class WikiStorage:
 
     def list_files(
         self,
-        project_id: int,
+        kb_id: int,
         prefix: str = "",
     ) -> list[dict[str, Any]]:
         """List files under a directory prefix (e.g. 'wiki/' or 'wiki/concepts/')."""
-        cols = ("id, project_id, category, relative_path, file_name, "
+        cols = ("id, kb_id, category, relative_path, file_name, "
                 "file_size, checksum, created_at, updated_at")
         if prefix:
             rows = self.conn.execute(
-                f"SELECT {cols} FROM files WHERE project_id = ? AND relative_path LIKE ? "
+                f"SELECT {cols} FROM files WHERE kb_id = ? AND relative_path LIKE ? "
                 "ORDER BY relative_path",
-                (project_id, f"{prefix}%"),
+                (kb_id, f"{prefix}%"),
             ).fetchall()
         else:
             rows = self.conn.execute(
-                f"SELECT {cols} FROM files WHERE project_id = ? ORDER BY relative_path",
-                (project_id,),
+                f"SELECT {cols} FROM files WHERE kb_id = ? ORDER BY relative_path",
+                (kb_id,),
             ).fetchall()
         return [dict(r) for r in rows]
 
     def list_files_by_category(
         self,
-        project_id: int,
+        kb_id: int,
         category: str,
     ) -> list[dict[str, Any]]:
         """List all files belonging to a top-level category ('graph' / 'raw' / 'wiki')."""
         rows = self.conn.execute(
-            "SELECT id, project_id, category, relative_path, file_name, "
+            "SELECT id, kb_id, category, relative_path, file_name, "
             "file_size, checksum, created_at, updated_at "
-            "FROM files WHERE project_id = ? AND category = ? "
+            "FROM files WHERE kb_id = ? AND category = ? "
             "ORDER BY relative_path",
-            (project_id, category),
+            (kb_id, category),
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def list_all_file_paths(self, project_id: int) -> list[str]:
+    def list_all_file_paths(self, kb_id: int) -> list[str]:
         rows = self.conn.execute(
-            "SELECT relative_path FROM files WHERE project_id = ? ORDER BY relative_path",
-            (project_id,),
+            "SELECT relative_path FROM files WHERE kb_id = ? ORDER BY relative_path",
+            (kb_id,),
         ).fetchall()
         return [r["relative_path"] for r in rows]
 
-    def count_files(self, project_id: int) -> int:
+    def count_files(self, kb_id: int) -> int:
         row = self.conn.execute(
-            "SELECT COUNT(*) AS cnt FROM files WHERE project_id = ?", (project_id,)
+            "SELECT COUNT(*) AS cnt FROM files WHERE kb_id = ?", (kb_id,)
         ).fetchone()
         return row["cnt"] if row else 0
 
-    def total_size(self, project_id: int) -> int:
+    def total_size(self, kb_id: int) -> int:
         row = self.conn.execute(
-            "SELECT COALESCE(SUM(file_size), 0) AS total FROM files WHERE project_id = ?",
-            (project_id,),
+            "SELECT COALESCE(SUM(file_size), 0) AS total FROM files WHERE kb_id = ?",
+            (kb_id,),
         ).fetchone()
         return row["total"] if row else 0
 
     # ── Full-text search ──────────────────────────────────────────────
 
-    def search(self, project_id: int, keyword: str) -> list[dict[str, Any]]:
+    def search(self, kb_id: int, keyword: str) -> list[dict[str, Any]]:
         """Full-text search across file paths and text content."""
         rows = self.conn.execute(
-            """SELECT f.id, f.project_id, f.category, f.relative_path, f.file_name,
+            """SELECT f.id, f.kb_id, f.category, f.relative_path, f.file_name,
                       f.file_size, f.checksum, f.created_at, f.updated_at,
                       snippet(files_fts, 1, '<mark>', '</mark>', '…', 60) AS snippet
                FROM files_fts
                JOIN files f ON f.id = files_fts.rowid
-               WHERE f.project_id = ? AND files_fts MATCH ?
+               WHERE f.kb_id = ? AND files_fts MATCH ?
                ORDER BY rank""",
-            (project_id, keyword),
+            (kb_id, keyword),
         ).fetchall()
         return [dict(r) for r in rows]
 
     # ── Directory tree ────────────────────────────────────────────────
 
-    def get_directory_tree(self, project_id: int) -> dict[str, Any]:
-        """Return a nested dict representing the file tree of a project.
+    def get_directory_tree(self, kb_id: int) -> dict[str, Any]:
+        """Return a nested dict representing the file tree of a kb.
 
         Example:
             {
@@ -394,8 +394,8 @@ class WikiStorage:
         """
         tree: dict[str, Any] = {}
         rows = self.conn.execute(
-            "SELECT id, relative_path FROM files WHERE project_id = ? ORDER BY relative_path",
-            (project_id,),
+            "SELECT id, relative_path FROM files WHERE kb_id = ? ORDER BY relative_path",
+            (kb_id,),
         ).fetchall()
 
         for row in rows:
@@ -407,12 +407,12 @@ class WikiStorage:
 
         return tree
 
-    def _write_tree(self, project_id: int, output_dir: Path, tree: dict[str, Any]) -> None:
+    def _write_tree(self, kb_id: int, output_dir: Path, tree: dict[str, Any]) -> None:
         for name, value in tree.items():
             target = output_dir / name
             if isinstance(value, dict):
                 target.mkdir(parents=True, exist_ok=True)
-                self._write_tree(project_id, target, value)
+                self._write_tree(kb_id, target, value)
             else:
                 row = self.conn.execute(
                     "SELECT content FROM files WHERE id = ?", (value,)
@@ -420,18 +420,18 @@ class WikiStorage:
                 if row and row["content"] is not None:
                     target.write_bytes(row["content"])
 
-    def export_project(self, project_id: int, output_dir: str | Path) -> int:
+    def export_kb(self, kb_id: int, output_dir: str | Path) -> int:
         """Reconstruct directory structure to disk. Returns number of files written."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        tree = self.get_directory_tree(project_id)
-        self._write_tree(project_id, output_dir, tree)
-        return self.count_files(project_id)
+        tree = self.get_directory_tree(kb_id)
+        self._write_tree(kb_id, output_dir, tree)
+        return self.count_files(kb_id)
 
     # ── Import from disk ──────────────────────────────────────────────
 
-    def import_directory(self, project_id: int, dir_path: str | Path, strip_prefix: bool = True) -> int:
-        """Import all files under dir_path into the project.
+    def import_directory(self, kb_id: int, dir_path: str | Path, strip_prefix: bool = True) -> int:
+        """Import all files under dir_path into the kb.
 
         If strip_prefix is True, the top-level directory name is kept (e.g.
         importing 'wiki/' preserves paths like 'wiki/index.md').  If False,
@@ -448,33 +448,33 @@ class WikiStorage:
                     rel = str(filepath.relative_to(dir_path.parent))
                 else:
                     rel = str(filepath)
-                self.add_file_from_disk(project_id, rel)
+                self.add_file_from_disk(kb_id, rel)
                 count += 1
         return count
 
-    def import_project_from_disk(self, project_name: str, root: str | Path | None = None) -> int:
-        """Create a project and import graph/, raw/, wiki/ from the given root.
+    def import_kb_from_disk(self, kb_name: str, root: str | Path | None = None) -> int:
+        """Create a kb and import graph/, raw/, wiki/ from the given root.
 
         If root is None, REPO_ROOT is used.
         """
         root = Path(root) if root else REPO_ROOT
-        pid = self.create_project(project_name, f"Imported from {root}")
+        kid = self.create_kb(kb_name, f"Imported from {root}")
 
         for subdir in ("graph", "raw", "wiki"):
             d = root / subdir
             if d.is_dir():
-                self.import_directory(pid, d)
+                self.import_directory(kid, d)
 
-        return pid
+        return kid
 
     # ── Diff helpers ──────────────────────────────────────────────────
 
-    def diff_checksums(self, project_id: int) -> list[dict[str, Any]]:
+    def diff_checksums(self, kb_id: int) -> list[dict[str, Any]]:
         """Compare stored checksums against files currently on disk (relative to REPO_ROOT)."""
         changed: list[dict[str, Any]] = []
         rows = self.conn.execute(
-            "SELECT id, relative_path, checksum FROM files WHERE project_id = ?",
-            (project_id,),
+            "SELECT id, relative_path, checksum FROM files WHERE kb_id = ?",
+            (kb_id,),
         ).fetchall()
 
         for row in rows:
@@ -500,21 +500,21 @@ class WikiStorage:
 
     # ── Stats ─────────────────────────────────────────────────────────
 
-    def project_stats(self, project_id: int) -> dict[str, Any]:
-        """Return summary stats for a project."""
-        proj = self.get_project(project_id)
-        file_count = self.count_files(project_id)
-        total_bytes = self.total_size(project_id)
+    def kb_stats(self, kb_id: int) -> dict[str, Any]:
+        """Return summary stats for a kb."""
+        kb = self.get_kb(kb_id)
+        file_count = self.count_files(kb_id)
+        total_bytes = self.total_size(kb_id)
 
         rows = self.conn.execute(
-            "SELECT category, COUNT(*) AS cnt FROM files WHERE project_id = ? "
+            "SELECT category, COUNT(*) AS cnt FROM files WHERE kb_id = ? "
             "GROUP BY category ORDER BY category",
-            (project_id,),
+            (kb_id,),
         ).fetchall()
         by_category = {r["category"]: r["cnt"] for r in rows}
 
         return {
-            "project": proj,
+            "kb": kb,
             "file_count": file_count,
             "total_bytes": total_bytes,
             "by_category": by_category,
@@ -529,25 +529,25 @@ def main() -> None:
 
     db = WikiStorage(db_path)
 
-    pid = db.import_project_from_disk("test-project")
-    logger.info("Created project #%d", pid)
+    kid = db.import_kb_from_disk("test-kb")
+    logger.info("Created kb #%d", kid)
 
-    stats = db.project_stats(pid)
+    stats = db.kb_stats(kid)
     logger.info("  Files: %d, Size: %d bytes", stats['file_count'], stats['total_bytes'])
     logger.info("  By category: %s", stats['by_category'])
 
-    all_paths = db.list_all_file_paths(pid)
+    all_paths = db.list_all_file_paths(kid)
     logger.info("  Sample paths: %s...", all_paths[:5])
 
     wiki_path = all_paths[0]
-    text = db.get_file_text_by_path(pid, wiki_path)
+    text = db.get_file_text_by_path(kid, wiki_path)
     if text:
         logger.info("  First 80 chars of %s: %s...", wiki_path, text[:80])
 
-    tree = db.get_directory_tree(pid)
+    tree = db.get_directory_tree(kid)
     logger.info("  Top-level dirs in tree: %s", list(tree.keys()))
 
-    results = db.search(pid, "wiki")
+    results = db.search(kid, "wiki")
     logger.info("  Search 'wiki' -> %d results", len(results))
 
     db.close()
