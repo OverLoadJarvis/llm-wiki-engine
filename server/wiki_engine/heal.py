@@ -69,7 +69,7 @@ class HealWorkflow:
             ValueError: 项目不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"项目不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -94,7 +94,7 @@ class HealWorkflow:
             }
 
         logger.info("\n%s", "=" * 60)
-        logger.info("  开始图谱自愈: %s (id=%d)", proj['name'], kb_id)
+        logger.info("  开始图谱自愈: %s (id=%d)", kb['name'], kb_id)
         logger.info("  缺失实体数: %d", len(missing_entities))
         logger.info("%s\n", "=" * 60)
 
@@ -193,7 +193,7 @@ class HealWorkflow:
             # 跳过 entities 和 concepts 目录，只从 sources 和其他页面找引用
             if "entities" in rel_path or "concepts" in rel_path:
                 continue
-            content = self.db.get_file_text_by_path(self.db_path, rel_path) or ""
+            content = self.db.get_file_text_by_path(kb_id, rel_path) or ""
             if entity.lower() in content.lower():
                 sources.append({"path": rel_path, "content": content})
                 if len(sources) >= max_sources:

@@ -85,7 +85,7 @@ class IngestWorkflow:
             ValueError: 知识库不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         raw_files = self.db.list_files_by_category(kb_id, "raw")
@@ -101,7 +101,7 @@ class IngestWorkflow:
             }
 
         logger.info("\n%s", "=" * 60)
-        logger.info("  开始构建知识库: %s (id=%d)", proj['name'], kb_id)
+        logger.info("  开始构建知识库: %s (id=%d)", kb['name'], kb_id)
         logger.info("  原始文件数: %d", len(raw_files))
         logger.info("%s\n", "=" * 60)
 
@@ -187,7 +187,7 @@ class IngestWorkflow:
         wiki_context = build_wiki_context(self.db, kb_id)
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
         kb = self.db.get_kb(kb_id)
-        proj_name = kb["name"] if proj else "unknown"
+        proj_name = kb["name"] if kb else "unknown"
         ingest_instruction = self.db.get_ingest_instruction(kb_id)
         if not ingest_instruction.strip():
             ingest_instruction = "（无特殊指令，按默认规范处理）"
@@ -358,7 +358,7 @@ class IngestWorkflow:
 
         return {
             "kb_id": kb_id,
-            "kb_name": kb["name"] if proj else "",
+            "kb_name": kb["name"] if kb else "",
             "status": "completed",
             "ingested": ingested,
             "total_raw_files": len(raw_files),

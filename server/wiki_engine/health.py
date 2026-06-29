@@ -65,7 +65,7 @@ class HealthWorkflow:
             ValueError: 知识库不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -77,7 +77,7 @@ class HealthWorkflow:
 
         return {
             "date": date.today().isoformat(),
-            "kb_name": proj["name"],
+            "kb_name": kb["name"],
             "total_pages": len(pages),
             "empty_files": self._check_empty_files(kb_id, pages),
             "index_sync": self._check_index_sync(kb_id, pages),
@@ -207,7 +207,7 @@ class HealthWorkflow:
             ValueError: 知识库不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -250,7 +250,7 @@ class HealthWorkflow:
 
         report_lines = [
             f"# Wiki 检查报告 — {today}",
-            f"知识库: {proj['name']}",
+            f"知识库: {kb['name']}",
             "",
             f"扫描了 {len(pages)} 个页面。",
             "",

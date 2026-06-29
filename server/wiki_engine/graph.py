@@ -1171,7 +1171,7 @@ applyFilters();
             ValueError: 知识库不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -1278,7 +1278,7 @@ applyFilters();
         graph_data = {
             "built": today,
             "kb_id": kb_id,
-            "kb_name": proj["name"],
+            "kb_name": kb["name"],
             "nodes": nodes,
             "edges": edges,
         }

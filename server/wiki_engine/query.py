@@ -58,7 +58,7 @@ class QueryWorkflow:
             ValueError: 知识库不存在
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -82,7 +82,7 @@ class QueryWorkflow:
 
         logger.info("  从 %d 个相关页面综合回答...", len(relevant_pages))
         prompt = QUERY_ANSWER_PROMPT.format(
-            kb_name=proj['name'],
+            kb_name=kb['name'],
             schema=schema,
             pages_context=pages_context,
             question=question,
@@ -113,7 +113,7 @@ class QueryWorkflow:
             str: LLM 回答的文本块
         """
         kb = self.db.get_kb(kb_id)
-        if not proj:
+        if not kb:
             raise ValueError(f"知识库不存在: {kb_id}")
 
         wiki_files = self.db.list_files(kb_id, "wiki/")
@@ -138,7 +138,7 @@ class QueryWorkflow:
 
         logger.info("  从 %d 个相关页面流式综合回答...", len(relevant_pages))
         prompt = QUERY_ANSWER_PROMPT.format(
-            kb_name=proj['name'],
+            kb_name=kb['name'],
             schema=schema,
             pages_context=pages_context,
             question=question,
