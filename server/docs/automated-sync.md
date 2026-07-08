@@ -7,12 +7,12 @@ This guide outlines a production-grade cron/launchd strategy for local Mac/Linux
 ## The Two-Step Architecture
 
 LLM Wiki Agent ingestion is a two-step process:
-1. **Syncing to `raw/`**: Getting files from your personal vault/tools into the agent's staging area.
-2. **Batch Ingestion**: Triggering `tools/ingest.py` on the synchronized directories to synthesize and weave them into the graph.
+1. **Syncing to `raw/`**: Getting files from your personal vault/tools into the knowledge base raw area.
+2. **Batch Ingestion**: Running `python -m wiki_engine update` from the `server/` directory to incrementally update the knowledge base.
 
 ### Step 1: The Master Orchestrator Script
 
-Create a comprehensive shell script in your wiki root (`daily-automated-sync.sh`):
+Create a shell script in your project's `server/` directory (`daily-automated-sync.sh`):
 
 ```bash
 #!/usr/bin/env bash
@@ -20,30 +20,30 @@ set -uo pipefail
 
 # Define variables
 LAB_DIR="$HOME/projects/active/personal-wiki-lab"
+SERVER_DIR="$LAB_DIR/server"
 LOG_FILE="$LAB_DIR/automation-cron.log"
 DATE=$(date "+%Y-%m-%d %H:%M:%S")
+KB_ID=1
+SOURCE_DIR="$LAB_DIR/raw"
 
 echo "=====================================================" >> "$LOG_FILE"
 echo "[$DATE] Starting automated wiki synchronization..." >> "$LOG_FILE"
 
-cd "$LAB_DIR" || exit 1
+cd "$SERVER_DIR" || exit 1
 
-# 1. Run your personal Vault-to-Raw symlink script here
-# Example: ./sync-raw.sh >> "$LOG_FILE" 2>&1
+# 1. Run your personal Vault-to-Raw sync script here
+# Example: "$LAB_DIR/sync-raw.sh" >> "$LOG_FILE" 2>&1
 
-# 2. Trigger Litellm Batch Ingestion using LLM of your choice
+# 2. Incrementally update the knowledge base (import raw/ and ingest new files)
 export LLM_MODEL="gemini/gemini-3-flash-preview"
 export GEMINI_API_KEY="AIzaSy..."  # or export OPENAI_API_KEY
 
-echo "[$DATE] Batch ingesting markdown files..." >> "$LOG_FILE"
-find raw/ -type l -name "*.md" -o -type f -name "*.md" | \
-while read file; do 
-    python3 tools/ingest.py "$file" >> "$LOG_FILE" 2>&1
-done
+echo "[$DATE] Updating knowledge base (kb_id=$KB_ID)..." >> "$LOG_FILE"
+python -m wiki_engine update --kb-id "$KB_ID" --source "$SOURCE_DIR" >> "$LOG_FILE" 2>&1
 
-# 3. Heal Graph Context (Auto-resolves broken semantic links)
+# 3. Heal graph context (auto-create missing entity pages)
 echo "[$DATE] Healing broken nodes..." >> "$LOG_FILE"
-python3 tools/heal.py >> "$LOG_FILE" 2>&1
+python -m wiki_engine heal --kb-id "$KB_ID" >> "$LOG_FILE" 2>&1
 
 echo "[$(date "+%Y-%m-%d %H:%M:%S")] Automated sync completed." >> "$LOG_FILE"
 echo "=====================================================" >> "$LOG_FILE"
@@ -98,4 +98,4 @@ launchctl load ~/Library/LaunchAgents/com.personal-wiki-sync.plist
 ```
 
 ### Self-Healing & Health Monitoring
-Since the automation runs silently at night, your `daemon.stderr.log` guarantees you will spot any API failures. The orchestrated script includes `tools/heal.py`, which is strongly recommended: it will seamlessly intercept and build concepts that accumulated throughout your day but were never individually formalized.
+Since the automation runs silently at night, your `daemon.stderr.log` guarantees you will spot any API failures. The orchestrated script includes `python -m wiki_engine heal` (or `python -m tools.heal`), which is strongly recommended: it will seamlessly intercept and build concepts that accumulated throughout your day but were never individually formalized.

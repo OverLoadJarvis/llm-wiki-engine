@@ -64,17 +64,36 @@ cd server
 python api_server.py
 ```
 
-访问 `http://localhost:5000` 进入 Web UI。
-
-### 前端开发（可选）
-
-前端为 Vue 3 + Vite 项目，位于 `ui-apple/` 目录：
+5. 构建并访问 Web UI（生产/一体化模式）：
 
 ```bash
 cd ui-apple
 npm install
-npm run dev      # 开发模式，默认 http://localhost:5173
-npm run build    # 生产构建，输出到 ui-apple/dist/
+npm run build
+```
+
+然后访问 `http://localhost:5000` 进入 Web UI。
+
+> 若未执行 `npm run build`，`http://localhost:5000` 仅提供 API。开发时请使用下方「前端开发」模式。
+
+### 前端开发（可选）
+
+前端为 Vue 3 + Vite 项目，位于 `ui-apple/` 目录。开发时需**同时**启动后端与 Vite：
+
+```bash
+# 终端 1：后端
+cd server
+python api_server.py
+
+# 终端 2：前端
+cd ui-apple
+npm install
+npm run dev      # 开发模式，默认 http://localhost:5173（API 通过代理转发到 5000）
+```
+
+```bash
+cd ui-apple
+npm run build    # 生产构建，输出到 ui-apple/dist/（也可被 Flask 自动托管）
 ```
 
 Docker 部署时会自动构建前端并内嵌到 Flask 服务中。

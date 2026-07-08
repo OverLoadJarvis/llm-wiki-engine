@@ -38,8 +38,8 @@ COPY --from=frontend-builder /app/ui-apple/dist ./ui-dist/
 # 创建上传目录
 RUN mkdir -p server/uploads
 
-# 暴露 API 端口
-EXPOSE 5000
+# 暴露 API 与 MCP 端口
+EXPOSE 5000 8081
 
 # 启动 API 服务（同时托管前端）
 CMD ["python", "server/api_server.py"]

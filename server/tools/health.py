@@ -2,270 +2,116 @@
 from __future__ import annotations
 
 """
-Structural health checks for the LLM Wiki.
+结构健康检查 CLI — 委托给 wiki_engine.health 工作流（SQLite 多知识库）。
 
-Unlike lint.py (which includes expensive LLM-powered semantic analysis),
-health.py is purely deterministic — zero API calls, fast enough to run
-every session.
+与 lint 的区别：
+  health = 结构完整性，确定性检查，零 LLM 调用，适合每次会话
+  lint   = 内容质量，含 LLM 语义分析，适合定期运行
 
 Usage:
-    python -m tools.health              # print report to stdout
-    python -m tools.health --save       # also save to wiki/health-report.md
-    python -m tools.health --json       # machine-readable output
-
-Checks:
-  - Empty / stub files (pages with no real content beyond frontmatter)
-  - Index sync (wiki/index.md entries vs actual files on disk)
-  - Log coverage (source pages without a corresponding log entry)
-
-Design boundary (see AGENTS.md):
-  health.py = structural integrity, deterministic, run every session
-  lint.py   = content quality, semantic (LLM), run every 10-15 ingests
+    python -m tools.health --kb-id 1
+    python -m tools.health --kb-id 1 --json
+    python -m tools.health --kb-id 1 --save
 """
 
-import re
-import sys
-import json
 import argparse
+import json
+import sys
 from pathlib import Path
-from datetime import date
 
-from tools.utils import (
-    REPO_ROOT,
-    WIKI_DIR,
-    INDEX_FILE,
-    LOG_FILE,
-    read_file,
-    all_wiki_pages,
-    strip_frontmatter,
-)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from wiki_engine import LLMWikiEngine
 from tools.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
-# Minimum content length (excluding frontmatter) to not be considered a stub
-STUB_THRESHOLD_CHARS = 100
-
-
-# ── Check: Empty / Stub files ───────────────────────────────────────
-
-def check_empty_files(pages: list[Path], threshold: int = STUB_THRESHOLD_CHARS) -> list[dict]:
-    """Find wiki pages that are empty or contain only frontmatter / minimal content."""
-    results = []
-    for p in pages:
-        raw = read_file(p)
-        body = strip_frontmatter(raw)
-        if len(body) < threshold:
-            results.append({
-                "path": str(p.relative_to(REPO_ROOT)),
-                "total_bytes": len(raw),
-                "body_bytes": len(body),
-                "status": "empty" if len(body) == 0 else "stub",
-            })
-    results.sort(key=lambda x: x["body_bytes"])
-    return results
-
-
-# ── Check: Index sync ───────────────────────────────────────────────
-
-def _parse_index_links(index_content: str) -> set[str]:
-    """Extract markdown link targets from index.md.
-
-    Matches patterns like: [Title](sources/slug.md)
-    Returns set of relative paths (e.g. 'sources/slug.md').
-    """
-    return set(re.findall(r'\[.*?\]\(([^)]+\.md)\)', index_content))
-
-
-def check_index_sync(pages: list[Path]) -> dict:
-    """Compare wiki/index.md entries against actual files on disk.
-
-    Returns:
-        {
-            "in_index_not_on_disk": [...],   # stale index entries
-            "on_disk_not_in_index": [...],   # missing from index
-        }
-    """
-    index_content = read_file(INDEX_FILE)
-    index_links = _parse_index_links(index_content)
-
-    # Normalize index links to absolute paths for comparison
-    # overview.md is listed under ## Overview, not in the per-type sections.
-    # Exclude it from both sides to avoid false positives.
-    meta_pages = {"overview.md"}
-
-    index_paths = set()
-    for link in index_links:
-        resolved = (WIKI_DIR / link).resolve()
-        if Path(link).name not in meta_pages:
-            index_paths.add(resolved)
-
-    disk_paths = set()
-    for p in pages:
-        if p.name not in meta_pages:
-            disk_paths.add(p.resolve())
-
-    in_index_not_on_disk = [
-        str(p.relative_to(REPO_ROOT)) for p in sorted(index_paths - disk_paths)
-        if REPO_ROOT in p.parents or p == REPO_ROOT
-    ]
-    on_disk_not_in_index = [
-        str(p.relative_to(REPO_ROOT)) for p in sorted(disk_paths - index_paths)
-    ]
-
-    return {
-        "in_index_not_on_disk": in_index_not_on_disk,
-        "on_disk_not_in_index": on_disk_not_in_index,
-    }
-
-
-# ── Check: Log coverage ────────────────────────────────────────────
-
-def _parse_log_entries(log_content: str) -> set[str]:
-    """Extract page titles/slugs from log.md entries.
-
-    Log format: ## [YYYY-MM-DD] ingest | Title Here
-    Returns set of lowercase title strings.
-    """
-    return set(
-        m.group(1).strip().lower()
-        for m in re.finditer(r'^## \[\d{4}-\d{2}-\d{2}\] ingest \| (.+)$', log_content, re.MULTILINE)
-    )
-
-
-def check_log_coverage(pages: list[Path]) -> list[dict]:
-    """Find source pages that have no corresponding ingest entry in log.md.
-
-    Only checks wiki/sources/*.md — entity/concept pages are created as
-    side-effects of ingest and don't need their own log entry.
-    """
-    log_content = read_file(LOG_FILE)
-    logged_titles = _parse_log_entries(log_content)
-
-    source_dir = WIKI_DIR / "sources"
-    if not source_dir.exists():
-        return []
-
-    missing = []
-    for p in sorted(source_dir.glob("*.md")):
-        # Try matching by slug (filename without .md) or by frontmatter title
-        slug = p.stem.lower().replace("-", " ").replace("_", " ")
-
-        # Also try extracting title from frontmatter
-        content = read_file(p)
-        title_match = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', content, re.MULTILINE)
-        fm_title = title_match.group(1).strip().lower() if title_match else ""
-
-        if slug not in logged_titles and fm_title not in logged_titles:
-            missing.append({
-                "path": str(p.relative_to(REPO_ROOT)),
-                "slug": p.stem,
-                "title": fm_title or p.stem,
-            })
-
-    return missing
-
-
-# ── Report Generation ───────────────────────────────────────────────
-
-def run_health() -> dict:
-    """Run all health checks, return structured results."""
-    pages = all_wiki_pages()
-
-    return {
-        "date": date.today().isoformat(),
-        "total_pages": len(pages),
-        "empty_files": check_empty_files(pages),
-        "index_sync": check_index_sync(pages),
-        "log_coverage": check_log_coverage(pages),
-    }
-
 
 def format_report(results: dict) -> str:
-    """Format health check results as markdown."""
     lines = [
-        f"# Wiki Health Report — {results['date']}",
+        f"# Health Report — {results['date']}",
+        f"知识库: {results.get('kb_name', '')}",
+        f"总页面数: {results['total_pages']}",
         "",
-        f"Scanned {results['total_pages']} wiki pages. "
-        "Checks are purely structural (no LLM calls).",
+        "## 空/存根文件",
         "",
     ]
 
-    # ── Empty / Stub Files
-    empty = results["empty_files"]
-    lines.append(f"## Empty / Stub Files ({len(empty)} found)")
-    lines.append("")
-    if empty:
-        lines.append("| Page | Total Bytes | Body Bytes | Status |")
-        lines.append("|---|---|---|---|")
-        for ef in empty:
-            emoji = "🔴" if ef["status"] == "empty" else "🟡"
-            lines.append(f"| `{ef['path']}` | {ef['total_bytes']} | {ef['body_bytes']} | {emoji} {ef['status']} |")
+    if results["empty_files"]:
+        for ef in results["empty_files"]:
+            lines.append(
+                f"- `{ef['path']}` — {ef['status']} "
+                f"({ef['body_bytes']} body bytes / {ef['total_bytes']} total)"
+            )
     else:
-        lines.append("All pages have content beyond frontmatter. ✅")
-    lines.append("")
+        lines.append("无空文件或存根文件。✅")
 
-    # ── Index Sync
-    isync = results["index_sync"]
-    stale = isync["in_index_not_on_disk"]
-    missing = isync["on_disk_not_in_index"]
-    total_issues = len(stale) + len(missing)
-    lines.append(f"## Index Sync ({total_issues} issues)")
-    lines.append("")
-
-    if stale:
-        lines.append("### Stale Index Entries (in index.md but no file on disk)")
-        for s in stale:
-            lines.append(f"- `{s}`")
+    lines.extend(["", "## 索引同步", ""])
+    sync = results["index_sync"]
+    if sync["in_index_not_on_disk"]:
+        lines.append("**索引中有但库中缺失:**")
+        for p in sync["in_index_not_on_disk"]:
+            lines.append(f"- `{p}`")
+        lines.append("")
+    if sync["on_disk_not_in_index"]:
+        lines.append("**库中有但索引缺失:**")
+        for p in sync["on_disk_not_in_index"]:
+            lines.append(f"- `{p}`")
+        lines.append("")
+    if not sync["in_index_not_on_disk"] and not sync["on_disk_not_in_index"]:
+        lines.append("索引与页面完全同步。✅")
         lines.append("")
 
-    if missing:
-        lines.append("### Missing from Index (file exists but not in index.md)")
-        for m in missing:
-            lines.append(f"- `{m}`")
-        lines.append("")
-
-    if not stale and not missing:
-        lines.append("index.md is in sync with disk. ✅")
-        lines.append("")
-
-    # ── Log Coverage
-    log_missing = results["log_coverage"]
-    lines.append(f"## Log Coverage ({len(log_missing)} source pages without log entry)")
-    lines.append("")
-    if log_missing:
-        lines.append("These source pages have no corresponding `ingest` entry in log.md:")
-        lines.append("")
-        for lm in log_missing:
-            lines.append(f"- `{lm['path']}` — {lm['title']}")
+    lines.extend(["", "## 日志覆盖", ""])
+    if results["log_coverage"]:
+        lines.append("**缺少 ingest 日志条目的源页面:**")
+        for lm in results["log_coverage"]:
+            title = lm.get("title") or lm.get("slug", "")
+            lines.append(f"- `{lm['path']}` — {title}")
     else:
-        lines.append("All source pages have corresponding log entries. ✅")
+        lines.append("所有源页面均有对应日志条目。✅")
     lines.append("")
 
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Structural health checks for the LLM Wiki (deterministic, no LLM calls)"
+        description="结构健康检查（确定性，无 LLM 调用）"
     )
-    parser.add_argument("--save", action="store_true",
-                        help="Save report to wiki/health-report.md")
-    parser.add_argument("--json", action="store_true",
-                        help="Output machine-readable JSON instead of markdown")
+    parser.add_argument("--db", default="storage/wiki.db", help="SQLite 数据库路径")
+    parser.add_argument("--kb-id", type=int, required=True, help="知识库 ID")
+    parser.add_argument("--save", action="store_true", help="保存报告到 wiki/health-report.md")
+    parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
     setup_logging(level="INFO")
 
-    results = run_health()
+    engine = LLMWikiEngine(args.db)
+    try:
+        results = engine.health_check(args.kb_id)
+    finally:
+        engine.close()
 
     if args.json:
-        logger.info(json.dumps(results, indent=2))
+        print(json.dumps(results, ensure_ascii=False, indent=2))
     else:
         report = format_report(results)
-        logger.info(report)
+        print(report)
 
         if args.save:
-            report_path = WIKI_DIR / "health-report.md"
-            report_path.write_text(report, encoding="utf-8")
-            logger.info("\nSaved: %s", report_path.relative_to(REPO_ROOT))
+            from storage.db import WikiStorage
+
+            db = WikiStorage(args.db)
+            try:
+                db.add_file(args.kb_id, "wiki/health-report.md", report)
+            finally:
+                db.close()
+            logger.info("已保存: wiki/health-report.md")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

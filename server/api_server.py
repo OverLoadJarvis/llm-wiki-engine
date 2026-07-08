@@ -33,13 +33,29 @@ from tools.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
-# 生产环境（Docker）使用构建产物，开发环境使用源码目录
-_WEB_DIST = PROJECT_ROOT.parent / "web-dist"
-_UI_DIST = PROJECT_ROOT.parent / "ui-dist"
-if _WEB_DIST.exists():
-    app = Flask(__name__, static_folder=str(_WEB_DIST), static_url_path="")
+# 前端构建产物：Docker → ui-dist/，本地构建 → ui-apple/dist/
+_UI_DIST_CANDIDATES = (
+    PROJECT_ROOT / "ui-dist",
+    PROJECT_ROOT / "ui-apple" / "dist",
+)
+_LEGACY_WEB_DIST = PROJECT_ROOT / "web-dist"
+
+
+def _resolve_frontend_dist() -> Path | None:
+    for candidate in _UI_DIST_CANDIDATES:
+        if (candidate / "index.html").is_file():
+            return candidate
+    if (_LEGACY_WEB_DIST / "index.html").is_file():
+        return _LEGACY_WEB_DIST
+    return None
+
+
+FRONTEND_DIST = _resolve_frontend_dist()
+
+if FRONTEND_DIST:
+    app = Flask(__name__, static_folder=str(FRONTEND_DIST), static_url_path="")
 else:
-    app = Flask(__name__, static_folder=str(PROJECT_ROOT / "web"), static_url_path="")
+    app = Flask(__name__)
 CORS(app)
 
 DB_PATH = REPO_ROOT / "storage" / "wiki.db"
@@ -55,21 +71,28 @@ def get_engine() -> LLMWikiEngine:
 
 # ── 静态页面 ──────────────────────────────────────────────────────────
 
+def _frontend_unavailable():
+    return jsonify({
+        "message": "前端未构建。请先运行: cd ui-apple && npm install && npm run build",
+        "dev_hint": "开发模式请同时启动后端与 Vite: cd ui-apple && npm run dev",
+    }), 503
+
+
 @app.route("/")
 def index():
-    """提供 web 前端页面。"""
-    if _WEB_DIST.exists():
-        return send_from_directory(str(_WEB_DIST), "index.html")
-    return send_from_directory(str(PROJECT_ROOT / "web"), "index.html")
+    """提供 ui-apple 前端页面。"""
+    if FRONTEND_DIST:
+        return send_from_directory(str(FRONTEND_DIST), "index.html")
+    return _frontend_unavailable()
 
 
 @app.route("/ui/")
 @app.route("/ui/<path:filename>")
-def ui_frontend(filename="index.html"):
-    """提供 ui 前端页面（端口 5174 的开发版 → /ui/ 路径）。"""
-    if _UI_DIST.exists():
-        return send_from_directory(str(_UI_DIST), filename)
-    return send_from_directory(str(PROJECT_ROOT / "ui"), filename)
+def ui_frontend_legacy(filename="index.html"):
+    """兼容旧版 /ui/ 路径，与根路径共用同一构建产物。"""
+    if FRONTEND_DIST:
+        return send_from_directory(str(FRONTEND_DIST), filename)
+    return _frontend_unavailable()
 
 
 # ── 知识库 API ──────────────────────────────────────────────────────────
@@ -1582,6 +1605,20 @@ def _start_mcp_server():
     uvicorn.run(mcp_app, host="0.0.0.0", port=MCP_PORT, log_level="warning")
 
 
+@app.route("/<path:filename>")
+def frontend_static(filename: str):
+    """托管 Vite 构建产物（assets/ 等），并对 SPA 路由回退到 index.html。"""
+    if filename.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+    if not FRONTEND_DIST:
+        return _frontend_unavailable()
+    if (FRONTEND_DIST / filename).is_file():
+        return send_from_directory(str(FRONTEND_DIST), filename)
+    if (FRONTEND_DIST / "index.html").is_file():
+        return send_from_directory(str(FRONTEND_DIST), "index.html")
+    return jsonify({"error": "Not found"}), 404
+
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv(os.path.join(REPO_ROOT, ".env"))
@@ -1594,6 +1631,10 @@ if __name__ == "__main__":
     logger.info("数据库: %s", DB_PATH)
     logger.info("上传目录: %s", DEFAULT_UPLOAD_DIR)
     logger.info("访问地址: http://localhost:%d", api_port)
+    if FRONTEND_DIST:
+        logger.info("前端静态资源: %s", FRONTEND_DIST)
+    else:
+        logger.info("前端静态资源: 未构建（仅 API 可用）")
 
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
 

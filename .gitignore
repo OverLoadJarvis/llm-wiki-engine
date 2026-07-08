@@ -42,3 +42,7 @@ ui/dist/
 ui/node_modules/
 ui-apple/dist/
 ui-apple/node_modules/
+
+.codegraph/
+
+uploads/

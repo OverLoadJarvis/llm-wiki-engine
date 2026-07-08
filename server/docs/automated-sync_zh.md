@@ -7,12 +7,12 @@
 ## 两步架构
 
 LLM Wiki Agent 的摄取是一个两步过程：
-1. **同步到 `raw/`**：将文件从您的个人库/工具获取到代理的暂存区域。
-2. **批量摄取**：在同步的目录上触发 `tools/ingest.py` 进行合成并编织到图谱中。
+1. **同步到 `raw/`**：将文件从您的个人库/工具获取到知识库的原始文件区。
+2. **批量摄取**：在 `server/` 目录下通过 `python -m wiki_engine update` 增量更新知识库。
 
 ### 步骤 1：主编排脚本
 
-在您的 wiki 根目录创建一个全面的 shell 脚本（`daily-automated-sync.sh`）：
+在您的 wiki 项目 `server/` 目录创建一个 shell 脚本（`daily-automated-sync.sh`）：
 
 ```bash
 #!/usr/bin/env bash
@@ -20,30 +20,30 @@ set -uo pipefail
 
 # 定义变量
 LAB_DIR="$HOME/projects/active/personal-wiki-lab"
+SERVER_DIR="$LAB_DIR/server"
 LOG_FILE="$LAB_DIR/automation-cron.log"
 DATE=$(date "+%Y-%m-%d %H:%M:%S")
+KB_ID=1
+SOURCE_DIR="$LAB_DIR/raw"
 
 echo "=====================================================" >> "$LOG_FILE"
 echo "[$DATE] 开始自动 wiki 同步..." >> "$LOG_FILE"
 
-cd "$LAB_DIR" || exit 1
+cd "$SERVER_DIR" || exit 1
 
-# 1. 在此运行您的个人 Vault-to-Raw 符号链接脚本
-# 示例: ./sync-raw.sh >> "$LOG_FILE" 2>&1
+# 1. 在此运行您的个人 Vault-to-Raw 同步脚本
+# 示例: "$LAB_DIR/sync-raw.sh" >> "$LOG_FILE" 2>&1
 
-# 2. 使用您选择的 LLM 触发 Litellm 批量摄取
+# 2. 增量更新知识库（导入 raw/ 并摄入新文件）
 export LLM_MODEL="gemini/gemini-3-flash-preview"
 export GEMINI_API_KEY="AIzaSy..."  # 或 export OPENAI_API_KEY
 
-echo "[$DATE] 批量摄取 markdown 文件..." >> "$LOG_FILE"
-find raw/ -type l -name "*.md" -o -type f -name "*.md" | \
-while read file; do 
-    python3 tools/ingest.py "$file" >> "$LOG_FILE" 2>&1
-done
+echo "[$DATE] 增量更新知识库 (kb_id=$KB_ID)..." >> "$LOG_FILE"
+python -m wiki_engine update --kb-id "$KB_ID" --source "$SOURCE_DIR" >> "$LOG_FILE" 2>&1
 
-# 3. 修复图谱上下文（自动解决断开的语义链接）
-echo "[$DATE] 修复断开的节点..." >> "$LOG_FILE"
-python3 tools/heal.py >> "$LOG_FILE" 2>&1
+# 3. 图谱自愈（补全缺失实体页面）
+echo "[$DATE] 图谱自愈..." >> "$LOG_FILE"
+python -m wiki_engine heal --kb-id "$KB_ID" >> "$LOG_FILE" 2>&1
 
 echo "[$(date "+%Y-%m-%d %H:%M:%S")] 自动同步完成。" >> "$LOG_FILE"
 echo "=====================================================" >> "$LOG_FILE"
@@ -98,4 +98,4 @@ launchctl load ~/Library/LaunchAgents/com.personal-wiki-sync.plist
 ```
 
 ### 自我修复与健康监控
-由于自动化在夜间静默运行，您的 `daemon.stderr.log` 确保您能够发现任何 API 失败。编排脚本包含 `tools/heal.py`，强烈建议使用：它将无缝拦截并构建您一天中积累但从未单独形式化的概念。
+由于自动化在夜间静默运行，您的 `daemon.stderr.log` 确保您能够发现任何 API 失败。编排脚本包含 `python -m wiki_engine heal`（或 `python -m tools.heal`），强烈建议使用：它将无缝拦截并构建您一天中积累但从未单独形式化的概念。
