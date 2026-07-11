@@ -1,0 +1,53 @@
+---
+description: Python 3.13.3 + uv 虚拟环境与国内镜像源约定
+globs: **/*.py,**/pyproject.toml,**/.python-version,**/uv.lock
+alwaysApply: false
+---
+
+# Python 与 uv 约定
+
+本项目 Python 代码位于 `server/`。涉及 Python 开发、依赖安装或脚本运行时，遵循以下约定。
+
+## Python 版本
+
+- **必须使用 Python 3.13.3**，不得使用其他版本。
+- 在 `server/` 目录下固定版本：
+
+```bash
+cd server
+uv python pin 3.13.3
+```
+
+- `pyproject.toml` 中 `requires-python` 应约束为 `==3.13.3` 或 `>=3.13.3,<3.13.4`。
+
+## 虚拟环境与包管理
+
+- **一律使用 uv** 创建虚拟环境、安装依赖、运行命令；不要使用 `pip`、`poetry` 或系统全局 Python。
+- 标准工作流（在 `server/` 目录执行）：
+
+```bash
+# 创建/同步虚拟环境并安装依赖
+uv sync
+
+# 在虚拟环境中运行脚本或模块
+uv run python api_server.py
+uv run python -m wiki_engine build --kb "my-docs" --source ./local
+```
+
+- 不要直接调用 `python` / `pip`，除非通过 `uv run` 间接执行。
+
+## 网络较差时使用国内源
+
+- 优先使用 `pyproject.toml` 中已配置的清华镜像（`https://pypi.tuna.tsinghua.edu.cn/simple`）。
+- 若镜像未生效或需临时指定，使用环境变量或命令行参数：
+
+```bash
+# 环境变量（当前 shell 会话）
+export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple   # Linux/macOS
+$env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"   # PowerShell
+
+# 或单次安装时指定
+uv pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple <package>
+```
+
+- 备选国内源（清华不可用时）：阿里云 `https://mirrors.aliyun.com/pypi/simple`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple`。

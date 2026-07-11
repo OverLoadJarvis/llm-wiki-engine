@@ -1,0 +1,60 @@
+---
+description: 生成代码须在关键路径添加控制台日志，外部系统调用必须记录
+alwaysApply: true
+---
+
+# 日志约定
+
+生成或修改代码时，在必要位置添加日志，便于排查问题。**与外部系统的接口调用必须记录**。
+
+## 必须记录日志的场景
+
+- HTTP / RPC / WebSocket 请求与响应（含状态码、耗时、失败原因）
+- LLM、数据库、文件存储、消息队列等第三方服务调用
+- 关键业务流程节点（开始、完成、跳过、失败）
+- 异常与重试（含上下文，便于定位）
+
+## 禁止
+
+- 日志中输出密钥、token、密码等敏感信息
+- 无意义的逐行调试日志（循环内打印每条记录等）
+- Python 中直接用 `print()` 代替 logger
+
+## Python（`server/`）
+
+使用项目统一的 `tools.logger`，不要用 `print`：
+
+```python
+from tools.logger import get_logger
+
+logger = get_logger(__name__)
+
+logger.info("Calling LLM: model=%s, prompt_len=%d", model, len(prompt))
+try:
+    response = call_external_api(...)
+    logger.info("LLM response received: tokens=%d", response.usage.total_tokens)
+except Exception:
+    logger.exception("LLM call failed: model=%s", model)
+    raise
+```
+
+外部调用至少记录：**操作名称、关键参数（脱敏）、结果状态或错误**。
+
+## 前端（`ui-apple/`）
+
+在 API 封装层或调用处使用 `console`：
+
+```javascript
+console.log('[api] POST /query', { kbId, questionLen: question.length })
+try {
+  const res = await api('/query', { method: 'POST', body: JSON.stringify(body) })
+  console.log('[api] POST /query ok', { status: 'ok' })
+  return res
+} catch (err) {
+  console.error('[api] POST /query failed', err.message)
+  throw err
+}
+```
+
+- 成功：`console.log`；可恢复异常：`console.warn`；失败：`console.error`
+- 日志前缀标明模块（如 `[api]`、`[GraphView]`），便于过滤
