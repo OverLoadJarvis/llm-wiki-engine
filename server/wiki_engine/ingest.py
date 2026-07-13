@@ -11,10 +11,9 @@
 """
 
 import json
-import re
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from storage.db import WikiStorage
 from wiki_engine.constants import SCHEMA_FILE
@@ -22,9 +21,13 @@ from wiki_engine.prompt import INGEST_PROMPT
 from wiki_engine.graph import GraphWorkflow
 from wiki_engine.helpers import (
     append_log,
+    bootstrap_ingest_manifest,
     build_wiki_context,
     extract_title_from_content,
-    get_ingested_slugs,
+    is_raw_ingested,
+    load_ingest_manifest,
+    record_ingest,
+    save_ingest_manifest,
     update_index,
     validate_ingest,
 )
@@ -50,6 +53,39 @@ class IngestWorkflow:
         self.db = db
         self.file_importer = file_importer
 
+    def _select_pending_raw_files(
+        self, kb_id: int, raw_files: list[dict]
+    ) -> tuple[list[dict], int]:
+        """按 ingest manifest（path + content hash）筛选待摄入 raw 文件。
+
+        Returns:
+            (pending_files, skipped_count)
+        """
+        manifest = load_ingest_manifest(self.db, kb_id)
+        if not manifest.get("entries"):
+            manifest = bootstrap_ingest_manifest(self.db, kb_id, manifest)
+
+        pending: list[dict] = []
+        skipped = 0
+        for f in raw_files:
+            rel_path = f["relative_path"]
+            md_content = self.db.get_file_text_by_path(kb_id, rel_path)
+            if md_content is None:
+                content_bytes = self.db.get_file_content(f["id"])
+                if content_bytes is None:
+                    pending.append(f)
+                    continue
+                md_content = content_bytes.decode("utf-8", errors="replace")
+
+            content_hash = sha256(md_content)
+            if is_raw_ingested(manifest, rel_path, content_hash):
+                skipped += 1
+                logger.info("  [跳过] 已摄入且未变更: %s", rel_path)
+                continue
+            pending.append(f)
+
+        return pending, skipped
+
     def build_knowledge_base(
         self,
         kb_id: int,
@@ -57,108 +93,145 @@ class IngestWorkflow:
         skip_graph: bool = False,
         graph_builder: GraphWorkflow = None,
     ) -> dict[str, Any]:
-        """对知识库中的所有 raw 文件执行完整的知识库构建流程。
+        """对知识库中的所有 raw 文件执行完整的知识库构建流程。"""
+        result: dict[str, Any] | None = None
+        for event in self.build_knowledge_base_stream(
+            kb_id,
+            auto_convert=auto_convert,
+            skip_graph=skip_graph,
+            graph_builder=graph_builder,
+        ):
+            if event.get("event") == "done":
+                result = event.get("result")
+            elif event.get("event") == "error":
+                raise ValueError(event.get("message", "构建失败"))
+        if result is None:
+            raise RuntimeError("构建未返回结果")
+        return result
 
-        流程：
-            1. 获取知识库中所有 raw 文件
-            2. 逐个执行 LLM 摄入
-            3. （可选）构建知识图谱
+    def build_knowledge_base_stream(
+        self,
+        kb_id: int,
+        auto_convert: bool = True,
+        skip_graph: bool = False,
+        graph_builder: GraphWorkflow = None,
+    ) -> Iterator[dict[str, Any]]:
+        """流式构建知识库，逐步 yield 进度事件。
 
-        Args:
-            kb_id: 知识库 ID
-            auto_convert: 是否自动转换非 MD 文件（当前未使用，保留接口兼容）
-            skip_graph: 是否跳过图谱构建
-            graph_builder: GraphWorkflow 实例，用于构建图谱；若为 ``None`` 且
-                ``skip_graph=False``，将跳过图谱构建
-
-        Returns:
-            构建结果字典，包含：
-            - ``kb_id``: 知识库 ID
-            - ``kb_name``: 知识库名称
-            - ``status``: 状态字符串（``"completed"`` / ``"no_raw_files"``）
-            - ``ingested``: 成功摄入的文件数
-            - ``total_raw_files``: 原始文件总数
-            - ``pages_created``: 创建的 wiki 页面路径列表
-            - ``errors``: 错误信息列表
-
-        Raises:
-            ValueError: 知识库不存在
+        仅摄入尚未记录在 ingest manifest 中（或内容 hash 已变）的 raw 文件。
         """
+        del auto_convert  # 保留接口兼容
         kb = self.db.get_kb(kb_id)
         if not kb:
-            raise ValueError(f"知识库不存在: {kb_id}")
+            yield {"event": "error", "message": f"知识库不存在: {kb_id}"}
+            return
 
         raw_files = self.db.list_files_by_category(kb_id, "raw")
         if not raw_files:
-            return {
+            result = {
                 "kb_id": kb_id,
                 "kb_name": kb["name"],
                 "status": "no_raw_files",
                 "message": "没有找到原始文件，请先使用 import_raw_files() 导入",
                 "ingested": 0,
+                "skipped": 0,
                 "pages_created": [],
                 "errors": [],
             }
+            yield {"event": "start", "kb_name": kb["name"], "total": 0, "task": "build"}
+            yield {"event": "done", "result": result}
+            return
+
+        pending_files, skipped_count = self._select_pending_raw_files(kb_id, raw_files)
 
         logger.info("\n%s", "=" * 60)
-        logger.info("  开始构建知识库: %s (id=%d)", kb['name'], kb_id)
-        logger.info("  原始文件数: %d", len(raw_files))
+        logger.info("  开始构建知识库: %s (id=%d)", kb["name"], kb_id)
+        logger.info("  原始文件: %d, 待摄入: %d, 已跳过: %d", len(raw_files), len(pending_files), skipped_count)
         logger.info("%s\n", "=" * 60)
+
+        if not pending_files:
+            result = {
+                "kb_id": kb_id,
+                "kb_name": kb["name"],
+                "status": "up_to_date",
+                "message": "所有 raw 文件已摄入且未变更，无需重复构建",
+                "ingested": 0,
+                "skipped": skipped_count,
+                "total_raw_files": len(raw_files),
+                "pages_created": [],
+                "errors": [],
+            }
+            yield {
+                "event": "start",
+                "kb_name": kb["name"],
+                "total": 0,
+                "skipped": skipped_count,
+                "task": "build",
+            }
+            yield {"event": "done", "result": result}
+            return
 
         ingested = 0
         all_created: list[str] = []
         errors: list[dict] = []
 
-        for f in raw_files:
-            rel_path = f["relative_path"]
-            filename = Path(rel_path).name
-            logger.info("\n--- 摄入: %s ---", filename)
+        batch_result: dict[str, Any] | None = None
+        for event in self._run_ingest_batch_stream(kb_id, pending_files, task="build"):
+            ev = event.get("event")
+            if ev == "done":
+                batch_result = event.get("result")
+                continue
+            yield event
 
-            try:
-                md_content = self.db.get_file_text_by_path(kb_id, rel_path)
-                if md_content is None:
-                    errors.append({"file": filename, "error": "文件内容为空"})
-                    continue
-
-                if not md_content.strip():
-                    errors.append({"file": filename, "error": "文件内容为空"})
-                    continue
-
-                result = self.ingest_single(kb_id, filename, md_content)
-                ingested += 1
-                all_created.extend(result.get("pages_created", []))
-
-            except Exception as e:
-                errors.append({"file": filename, "error": str(e)})
-                logger.error("  %s: %s", filename, e)
+        if batch_result:
+            ingested = batch_result.get("ingested", 0)
+            all_created = batch_result.get("pages_created", [])
+            errors = batch_result.get("errors", [])
 
         if not skip_graph and ingested > 0 and graph_builder is not None:
             logger.info("\n\n--- 构建知识图谱 ---")
+            yield {"event": "graph_start"}
             try:
                 graph_result = graph_builder.build_graph(kb_id)
-                logger.info("  图谱: %d 节点, %d 边", graph_result.get('n_nodes', 0), graph_result.get('n_edges', 0))
+                logger.info(
+                    "  图谱: %d 节点, %d 边",
+                    graph_result.get("n_nodes", 0),
+                    graph_result.get("n_edges", 0),
+                )
+                yield {
+                    "event": "graph_done",
+                    "n_nodes": graph_result.get("n_nodes", 0),
+                    "n_edges": graph_result.get("n_edges", 0),
+                }
             except Exception as e:
                 logger.warning("  图谱构建失败: %s", e)
+                yield {"event": "graph_error", "error": str(e)}
 
         logger.info("\n%s", "=" * 60)
         logger.info("  知识库构建完成!")
-        logger.info("  摄入文件: %d/%d", ingested, len(raw_files))
+        logger.info("  摄入文件: %d/%d (跳过 %d)", ingested, len(pending_files), skipped_count)
         logger.info("  创建页面: %d", len(all_created))
         logger.info("  错误数: %d", len(errors))
         logger.info("%s\n", "=" * 60)
 
-        return {
+        result = {
             "kb_id": kb_id,
             "kb_name": kb["name"],
             "status": "completed",
             "ingested": ingested,
+            "skipped": skipped_count,
             "total_raw_files": len(raw_files),
             "pages_created": all_created,
             "errors": errors,
         }
+        yield {"event": "done", "result": result}
 
     def ingest_single(
-        self, kb_id: int, source_filename: str, source_content: str
+        self,
+        kb_id: int,
+        source_filename: str,
+        source_content: str,
+        raw_relative_path: str | None = None,
     ) -> dict[str, Any]:
         """对单个原始文件执行 LLM 摄入。
 
@@ -169,6 +242,7 @@ class IngestWorkflow:
             kb_id: 知识库 ID
             source_filename: 源文件名
             source_content: 源文件 Markdown 内容
+            raw_relative_path: raw 相对路径（写入 manifest），默认 ``raw/<filename>``
 
         Returns:
             摄入结果字典，包含：
@@ -183,6 +257,7 @@ class IngestWorkflow:
         """
         today = date.today().isoformat()
         source_hash = sha256(source_content)
+        rel_path = raw_relative_path or f"raw/{Path(source_filename).name}"
 
         wiki_context = build_wiki_context(self.db, kb_id)
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
@@ -256,6 +331,18 @@ class IngestWorkflow:
         if not validation["broken_links"] and not validation["unindexed"]:
             logger.info("  验证通过")
 
+        # 记录到 ingest manifest（path + hash，与 LLM slug 无关）
+        manifest = load_ingest_manifest(self.db, kb_id)
+        record_ingest(
+            manifest,
+            rel_path,
+            source_hash,
+            source_slug=slug,
+            pages=pages_created,
+        )
+        save_ingest_manifest(self.db, kb_id, manifest)
+        logger.info("  Manifest recorded: %s (hash=%s…)", rel_path, source_hash[:12])
+
         return {
             "title": data.get("title", ""),
             "slug": slug,
@@ -269,99 +356,142 @@ class IngestWorkflow:
         kb_id: int,
         source_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        """增量更新知识库。
+        """增量更新知识库。"""
+        result: dict[str, Any] | None = None
+        for event in self.update_knowledge_base_stream(kb_id, source_dir):
+            if event.get("event") == "done":
+                result = event.get("result")
+            elif event.get("event") == "error":
+                raise ValueError(event.get("message", "更新失败"))
+        if result is None:
+            raise RuntimeError("更新未返回结果")
+        return result
 
-        流程：
-            1. 若提供了 ``source_dir``，先导入新的原始文件
-            2. 对比已摄入 slug，找出尚未处理的新文件
-            3. 对新文件执行 LLM 摄入
-
-        Args:
-            kb_id: 知识库 ID
-            source_dir: 可选的源文件目录路径，若提供则先导入文件
-
-        Returns:
-            与 :meth:`build_knowledge_base` 格式相同的字典；
-            若没有新文件则 ``status`` 为 ``"up_to_date"``
-        """
+    def update_knowledge_base_stream(
+        self,
+        kb_id: int,
+        source_dir: str | Path | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """流式增量更新知识库。"""
         if source_dir:
-            import_stats = self.file_importer.import_raw_files(kb_id, Path(source_dir))
-            logger.info("  导入完成: %s", import_stats)
+            yield {"event": "import_start", "source_dir": str(source_dir)}
+            for import_event in self.file_importer.import_raw_files_stream(kb_id, Path(source_dir)):
+                yield import_event
+                if import_event.get("event") == "error":
+                    return
 
-        ingested_slugs = get_ingested_slugs(self.db, kb_id)
         raw_files = self.db.list_files_by_category(kb_id, "raw")
-        new_files = [
-            f for f in raw_files
-            if Path(f["relative_path"]).stem.lower() not in ingested_slugs
-        ]
+        new_files, skipped_count = self._select_pending_raw_files(kb_id, raw_files)
 
         if not new_files:
-            return {
+            result = {
                 "kb_id": kb_id,
                 "status": "up_to_date",
                 "message": "知识库已是最新状态，没有新的原始文件需要处理",
                 "ingested": 0,
+                "skipped": skipped_count,
                 "pages_created": [],
                 "errors": [],
             }
+            yield {
+                "event": "start",
+                "total": 0,
+                "skipped": skipped_count,
+                "task": "update",
+            }
+            yield {"event": "done", "result": result}
+            return
 
-        logger.info("\n  发现 %d 个新文件待摄入", len(new_files))
-        return self._run_ingest_batch(kb_id, new_files)
+        logger.info("\n  发现 %d 个新/变更文件待摄入 (跳过 %d)", len(new_files), skipped_count)
+        yield from self._run_ingest_batch_stream(kb_id, new_files, task="update")
 
     def _run_ingest_batch(
         self, kb_id: int, raw_files: list[dict]
     ) -> dict[str, Any]:
-        """对一批原始文件执行摄入。
+        """对一批原始文件执行摄入。"""
+        result: dict[str, Any] | None = None
+        for event in self._run_ingest_batch_stream(kb_id, raw_files, task="ingest"):
+            if event.get("event") == "done":
+                result = event.get("result")
+            elif event.get("event") == "error":
+                raise ValueError(event.get("message", "摄入失败"))
+        if result is None:
+            raise RuntimeError("摄入未返回结果")
+        return result
 
-        逐个处理文件：非 MD 文件先转换为 Markdown，然后执行 LLM 摄入。
-
-        Args:
-            kb_id: 知识库 ID
-            raw_files: 待处理的文件记录列表
-
-        Returns:
-            摄入结果字典
-        """
+    def _run_ingest_batch_stream(
+        self,
+        kb_id: int,
+        raw_files: list[dict],
+        task: str = "ingest",
+    ) -> Iterator[dict[str, Any]]:
+        """流式对一批原始文件执行摄入。"""
         kb = self.db.get_kb(kb_id)
+        if not kb:
+            yield {"event": "error", "message": f"知识库不存在: {kb_id}"}
+            return
+
+        total = len(raw_files)
+        yield {"event": "start", "kb_name": kb["name"], "total": total, "task": task}
+
         ingested = 0
         all_created: list[str] = []
         errors: list[dict] = []
 
-        for f in raw_files:
-            filename = Path(f["relative_path"]).name
+        for index, f in enumerate(raw_files, start=1):
+            rel_path = f["relative_path"]
+            filename = Path(rel_path).name
             logger.info("\n--- 摄入: %s ---", filename)
+            yield {"event": "file_start", "file": filename, "index": index, "total": total}
             try:
                 content_bytes = self.db.get_file_content(f["id"])
                 if content_bytes is None:
                     continue
 
                 md_content: str | None = None
+                ingest_path = rel_path
                 if Path(filename).suffix.lower() != ".md":
                     logger.info("  转换 %s 为 Markdown...", filename)
                     md_content = self.file_importer.convert_to_md(content_bytes, filename)
                     if md_content is None:
-                        errors.append({"file": filename, "error": f"格式不支持: {Path(filename).suffix}"})
+                        err_msg = f"格式不支持: {Path(filename).suffix}"
+                        errors.append({"file": filename, "error": err_msg})
+                        yield {"event": "file_error", "file": filename, "error": err_msg}
                         continue
                     converted_path = f"raw/{Path(filename).stem}.md"
                     self.db.add_file(kb_id, converted_path, md_content)
+                    ingest_path = converted_path
                 else:
                     md_content = content_bytes.decode("utf-8", errors="replace")
 
                 if not md_content or not md_content.strip():
                     continue
 
-                result = self.ingest_single(kb_id, filename, md_content)
+                result = self.ingest_single(
+                    kb_id,
+                    filename,
+                    md_content,
+                    raw_relative_path=ingest_path,
+                )
                 ingested += 1
-                all_created.extend(result.get("pages_created", []))
+                pages = result.get("pages_created", [])
+                all_created.extend(pages)
+                yield {
+                    "event": "file_done",
+                    "file": filename,
+                    "pages_created": len(pages),
+                }
             except Exception as e:
                 errors.append({"file": filename, "error": str(e)})
+                yield {"event": "file_error", "file": filename, "error": str(e)}
 
-        return {
+        result = {
             "kb_id": kb_id,
             "kb_name": kb["name"] if kb else "",
             "status": "completed",
             "ingested": ingested,
-            "total_raw_files": len(raw_files),
+            "total_raw_files": total,
             "pages_created": all_created,
             "errors": errors,
         }
+        yield {"event": "done", "result": result}

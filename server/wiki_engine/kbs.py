@@ -93,54 +93,63 @@ class FileImporter:
         self.db = db
 
     def import_raw_files(self, kb_id: int, source_dir: str | Path) -> dict[str, int]:
-        """将本地目录中的原始文件扫描并转换为 Markdown 后存入 SQLite。
+        """将本地目录中的原始文件扫描并转换为 Markdown 后存入 SQLite。"""
+        result: dict[str, int] | None = None
+        for event in self.import_raw_files_stream(kb_id, source_dir):
+            if event.get("event") == "done":
+                result = event.get("result")
+            elif event.get("event") == "error":
+                raise ValueError(event.get("message", "导入失败"))
+        if result is None:
+            raise RuntimeError("导入未返回结果")
+        return result
 
-        递归扫描 ``source_dir`` 下的所有文件，跳过隐藏文件和不支持的格式。
-        Markdown 文件直接存入，其他格式通过 markitdown 转换后存入。
-        原始文件本身不存入 SQLite，仅保存转换后的 MD 文件。
+    def import_raw_files_stream(
+        self, kb_id: int, source_dir: str | Path
+    ):
+        """流式导入本地目录中的原始文件。"""
+        from typing import Iterator
 
-        Args:
-            kb_id: 知识库 ID
-            source_dir: 源文件目录路径
-
-        Returns:
-            包含三个键的统计字典：
-            - ``imported``: 成功导入的文件数
-            - ``skipped``: 跳过的文件数（隐藏文件/不支持的格式/转换失败）
-            - ``errors``: 出错的文件数
-
-        Raises:
-            FileNotFoundError: 目录不存在
-            ValueError: 知识库不存在
-        """
         source_dir = Path(source_dir)
         if not source_dir.is_dir():
-            raise FileNotFoundError(f"目录不存在: {source_dir}")
+            yield {"event": "error", "message": f"目录不存在: {source_dir}"}
+            return
 
         kb = self.db.get_kb(kb_id)
         if not kb:
-            raise ValueError(f"知识库不存在: {kb_id}")
+            yield {"event": "error", "message": f"知识库不存在: {kb_id}"}
+            return
+
+        all_files = [f for f in source_dir.rglob("*") if f.is_file()]
+        candidates = [
+            f for f in all_files
+            if not f.name.startswith(".") and f.suffix.lower() in ALL_SUPPORTED_EXTENSIONS
+        ]
+        total = len(candidates)
 
         logger.info("[import_raw_files] 开始扫描目录: %s", source_dir)
-        stats = {"imported": 0, "skipped": 0, "errors": 0}
+        yield {"event": "start", "kb_name": kb["name"], "total": total, "task": "import"}
 
-        # 先收集所有文件，做一次预览
-        all_files = [f for f in source_dir.rglob("*") if f.is_file()]
-        logger.info("[import_raw_files] 共发现 %d 个文件", len(all_files))
+        stats = {"imported": 0, "skipped": 0, "errors": 0}
+        index = 0
 
         for filepath in source_dir.rglob("*"):
             if not filepath.is_file():
                 continue
+            rel_display = filepath.relative_to(source_dir).as_posix()
             if filepath.name.startswith("."):
-                logger.info("  [跳过] 隐藏文件: %s", filepath.relative_to(source_dir).as_posix())
+                logger.info("  [跳过] 隐藏文件: %s", rel_display)
                 stats["skipped"] += 1
                 continue
 
             ext = filepath.suffix.lower()
             if ext not in ALL_SUPPORTED_EXTENSIONS:
-                logger.info("  [跳过] 不支持的格式 (%s): %s", ext, filepath.relative_to(source_dir).as_posix())
+                logger.info("  [跳过] 不支持的格式 (%s): %s", ext, rel_display)
                 stats["skipped"] += 1
                 continue
+
+            index += 1
+            yield {"event": "file_start", "file": rel_display, "index": index, "total": total}
 
             try:
                 rel = filepath.relative_to(source_dir)
@@ -148,25 +157,32 @@ class FileImporter:
                     md_content = filepath.read_text(encoding="utf-8", errors="replace")
                     rel_path = f"raw/{rel.as_posix()}"
                     self.db.add_file(kb_id, rel_path, md_content)
-                    logger.info("  [导入] %s -> %s", filepath.relative_to(source_dir).as_posix(), rel_path)
+                    logger.info("  [导入] %s -> %s", rel_display, rel_path)
                     stats["imported"] += 1
+                    yield {"event": "file_imported", "file": rel_display}
                 else:
                     content_bytes = filepath.read_bytes()
                     md_content = self.convert_to_md(content_bytes, filepath.name)
                     if md_content is None:
-                        logger.info("  [跳过] 转换失败: %s (可能缺少 markitdown 库或格式不支持)", filepath.relative_to(source_dir).as_posix())
+                        logger.info("  [跳过] 转换失败: %s", rel_display)
                         stats["skipped"] += 1
+                        yield {"event": "file_skipped", "file": rel_display, "reason": "转换失败"}
                         continue
                     rel_path = f"raw/{rel.with_suffix('.md').as_posix()}"
                     self.db.add_file(kb_id, rel_path, md_content)
-                    logger.info("  [导入] %s -> %s (已转换为 Markdown)", filepath.relative_to(source_dir).as_posix(), rel_path)
+                    logger.info("  [导入] %s -> %s (已转换为 Markdown)", rel_display, rel_path)
                     stats["imported"] += 1
+                    yield {"event": "file_imported", "file": rel_display}
             except Exception as e:
-                logger.error("  [错误] %s: %s", filepath.relative_to(source_dir).as_posix(), e)
+                logger.error("  [错误] %s: %s", rel_display, e)
                 stats["errors"] += 1
+                yield {"event": "file_error", "file": rel_display, "error": str(e)}
 
-        logger.info("[import_raw_files] 完成: 导入 %d, 跳过 %d, 错误 %d", stats['imported'], stats['skipped'], stats['errors'])
-        return stats
+        logger.info(
+            "[import_raw_files] 完成: 导入 %d, 跳过 %d, 错误 %d",
+            stats["imported"], stats["skipped"], stats["errors"],
+        )
+        yield {"event": "done", "result": stats}
 
     def add_raw_content(self, kb_id: int, filename: str, content: str | bytes) -> int:
         """添加单个原始文件内容到 SQLite。

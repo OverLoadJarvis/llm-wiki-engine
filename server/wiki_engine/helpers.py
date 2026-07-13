@@ -6,18 +6,190 @@
 - 日志追加
 - 摄入后验证
 - 标题提取
-- 已摄入 slug 查询
+- 已摄入 slug / ingest manifest 查询
 """
 
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from storage.db import WikiStorage
-from tools.utils import extract_wikilinks, strip_frontmatter
+from tools.utils import extract_wikilinks, strip_frontmatter, sha256
 from tools.logger import get_logger
 
 logger = get_logger(__name__)
+
+INGEST_MANIFEST_PATH = "wiki/_ingest_manifest.json"
+
+
+def empty_ingest_manifest() -> dict[str, Any]:
+    """返回空的 ingest manifest 结构。"""
+    return {"version": 1, "entries": {}}
+
+
+def load_ingest_manifest(db: WikiStorage, kb_id: int) -> dict[str, Any]:
+    """从 wiki/_ingest_manifest.json 加载摄入清单。"""
+    raw = db.get_file_text_by_path(kb_id, INGEST_MANIFEST_PATH)
+    if not raw or not raw.strip():
+        return empty_ingest_manifest()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Invalid ingest manifest JSON for kb_id=%s, resetting", kb_id)
+        return empty_ingest_manifest()
+    if not isinstance(data, dict):
+        return empty_ingest_manifest()
+    entries = data.get("entries")
+    if not isinstance(entries, dict):
+        entries = {}
+    return {"version": int(data.get("version", 1)), "entries": entries}
+
+
+def save_ingest_manifest(db: WikiStorage, kb_id: int, manifest: dict[str, Any]) -> None:
+    """将摄入清单写入 wiki/_ingest_manifest.json。"""
+    payload = {
+        "version": int(manifest.get("version", 1)),
+        "entries": manifest.get("entries") or {},
+    }
+    content = json.dumps(payload, ensure_ascii=False, indent=2)
+    db.add_file(kb_id, INGEST_MANIFEST_PATH, content)
+    logger.info(
+        "Saved ingest manifest: kb_id=%s, entries=%d",
+        kb_id,
+        len(payload["entries"]),
+    )
+
+
+def is_raw_ingested(
+    manifest: dict[str, Any], relative_path: str, content_hash: str
+) -> bool:
+    """判断 raw 路径在当前内容 hash 下是否已记录为已摄入。"""
+    entry = (manifest.get("entries") or {}).get(relative_path)
+    if not entry or not isinstance(entry, dict):
+        return False
+    return entry.get("content_hash") == content_hash
+
+
+def record_ingest(
+    manifest: dict[str, Any],
+    relative_path: str,
+    content_hash: str,
+    source_slug: str,
+    pages: list[str] | None = None,
+) -> dict[str, Any]:
+    """向 manifest 写入或更新一条摄入记录（原地修改并返回 manifest）。"""
+    entries = manifest.setdefault("entries", {})
+    entries[relative_path] = {
+        "content_hash": content_hash,
+        "source_slug": source_slug,
+        "ingested_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pages": list(pages or []),
+    }
+    manifest.setdefault("version", 1)
+    return manifest
+
+
+def _normalize_raw_ref(value: str) -> str | None:
+    """将 frontmatter 中的 raw 引用规范为 relative_path（如 raw/foo.md）。"""
+    value = value.strip().strip('"').strip("'")
+    if not value:
+        return None
+    value = value.replace("\\", "/")
+    # sources: [raw/...] YAML list item without brackets sometimes arrives as raw/...
+    if value.startswith("- "):
+        value = value[2:].strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1].strip().strip('"').strip("'")
+    if not value:
+        return None
+    if not value.startswith("raw/"):
+        if "/" not in value:
+            value = f"raw/{value}"
+        else:
+            return None
+    return value
+
+
+def extract_raw_path_from_source_page(content: str) -> str | None:
+    """从 wiki/sources 页面 frontmatter 提取 raw 路径（source_file / sources）。"""
+    m = re.search(r"^source_file:\s*(.+)$", content, re.MULTILINE)
+    if m:
+        return _normalize_raw_ref(m.group(1))
+
+    m = re.search(r"^sources:\s*(.+)$", content, re.MULTILINE)
+    if not m:
+        return None
+    raw_val = m.group(1).strip()
+    if raw_val.startswith("[") and not raw_val.endswith("]"):
+        # multi-line list; collect following "- raw/..." lines only naively from first line
+        return None
+    if raw_val.startswith("[") and raw_val.endswith("]"):
+        inner = raw_val[1:-1].strip()
+        if not inner:
+            return None
+        # take first item
+        first = inner.split(",")[0].strip()
+        return _normalize_raw_ref(first)
+    return _normalize_raw_ref(raw_val)
+
+
+def bootstrap_ingest_manifest(
+    db: WikiStorage, kb_id: int, manifest: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """manifest 为空时，从 wiki/sources frontmatter 尝试填充 path→当前 raw hash。
+
+    仅当 frontmatter 明确指向某个现有 raw 路径时写入，避免误跳过。
+    """
+    if manifest is None:
+        manifest = load_ingest_manifest(db, kb_id)
+    if manifest.get("entries"):
+        return manifest
+
+    source_files = db.list_files(kb_id, "wiki/sources/")
+    if not source_files:
+        return manifest
+
+    filled = 0
+    for sf in source_files:
+        content = db.get_file_text_by_path(kb_id, sf["relative_path"])
+        if not content:
+            continue
+        raw_path = extract_raw_path_from_source_page(content)
+        if not raw_path:
+            continue
+        raw_text = db.get_file_text_by_path(kb_id, raw_path)
+        if raw_text is None:
+            continue
+        slug = Path(sf["relative_path"]).stem
+        record_ingest(
+            manifest,
+            raw_path,
+            sha256(raw_text),
+            source_slug=slug,
+            pages=[sf["relative_path"]],
+        )
+        filled += 1
+
+    if filled:
+        save_ingest_manifest(db, kb_id, manifest)
+        logger.info(
+            "Bootstrapped ingest manifest: kb_id=%s, entries=%d", kb_id, filled
+        )
+    return manifest
+
+
+def get_ingested_slugs(db: WikiStorage, kb_id: int) -> set[str]:
+    """获取项目中已摄入的源文档 slug 集合。
+
+    Deprecated for Build/Update skip logic: prefer ingest manifest (path + hash).
+    Kept for health checks and other callers.
+
+    通过扫描 wiki/sources/ 目录下的文件名来推断哪些源文档已被处理。
+    """
+    source_files = db.list_files(kb_id, "wiki/sources/")
+    return {Path(f["relative_path"]).stem.lower() for f in source_files}
 
 
 def build_wiki_context(db: WikiStorage, kb_id: int) -> str:
@@ -72,22 +244,6 @@ def all_wiki_page_stems(db: WikiStorage, kb_id: int) -> set[str]:
         for f in wiki_files
         if Path(f["relative_path"]).name not in ("index.md", "log.md", "lint-report.md")
     }
-
-
-def get_ingested_slugs(db: WikiStorage, kb_id: int) -> set[str]:
-    """获取项目中已摄入的源文档 slug 集合。
-
-    通过扫描 wiki/sources/ 目录下的文件名来推断哪些源文档已被处理。
-
-    Args:
-        db: WikiStorage 数据库实例
-        kb_id: 项目 ID
-
-    Returns:
-        已摄入 slug 的小写集合
-    """
-    source_files = db.list_files(kb_id, "wiki/sources/")
-    return {Path(f["relative_path"]).stem.lower() for f in source_files}
 
 
 def extract_title_from_content(content: str) -> str:

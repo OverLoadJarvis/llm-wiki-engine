@@ -1,6 +1,12 @@
 <template>
   <div class="status-bar">
-    <span class="status-text">{{ statusText }}</span>
+    <div class="status-left">
+      <div v-if="taskRunning" class="spinner"></div>
+      <span class="status-text">
+        <template v-if="taskRunning && currentFile">{{ currentFile }}</template>
+        <template v-else>{{ statusText }}</template>
+      </span>
+    </div>
     <span class="status-kb">{{ statusKb }}</span>
   </div>
 </template>
@@ -8,7 +14,9 @@
 <script setup>
 defineProps({
   statusText: { type: String, default: 'Ready' },
-  statusKb: { type: String, default: '' }
+  statusKb: { type: String, default: '' },
+  taskRunning: { type: Boolean, default: false },
+  currentFile: { type: String, default: '' }
 })
 </script>
 
@@ -28,6 +36,14 @@ defineProps({
   font-weight: 400;
   color: var(--text-tertiary);
   letter-spacing: 0.01em;
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .status-text {

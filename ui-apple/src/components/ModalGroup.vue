@@ -63,8 +63,11 @@
           <span v-if="zipFileName" class="file-selected">Selected: {{ zipFileName }}</span>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
-          <button class="btn" @click="doImport">Import</button>
+          <button class="btn btn-outline" @click="$emit('close')" :disabled="importLoading">Cancel</button>
+          <button class="btn" @click="doImport" :disabled="importLoading || taskRunning">
+            <span v-if="importLoading" class="spinner"></span>
+            {{ importLoading ? 'Importing...' : 'Import' }}
+          </button>
         </div>
       </div>
     </div>
@@ -82,8 +85,11 @@
           <span v-if="kbZipFileName" class="file-selected">Selected: {{ kbZipFileName }}</span>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-outline" @click="$emit('close')">Cancel</button>
-          <button class="btn" @click="doImportKb">Import</button>
+          <button class="btn btn-outline" @click="$emit('close')" :disabled="importLoading">Cancel</button>
+          <button class="btn" @click="doImportKb" :disabled="importLoading || taskRunning">
+            <span v-if="importLoading" class="spinner"></span>
+            {{ importLoading ? 'Importing...' : 'Import' }}
+          </button>
         </div>
       </div>
     </div>
@@ -130,18 +136,16 @@ import { renderMarkdown } from '../utils/markdown.js'
 const props = defineProps({
   active: { type: String, default: '' },
   kbName: { type: String, default: '' },
+  taskRunning: { type: Boolean, default: false },
   queryApi: { type: Function, required: true },
   createApi: { type: Function, required: true },
   deleteApi: { type: Function, required: true },
-  importApi: { type: Function, required: true },
-  importZipApi: { type: Function, required: true },
-  importKbApi: { type: Function, required: true },
   lintApi: { type: Function, required: true },
   instructionApi: { type: Function, required: true },
   setInstructionApi: { type: Function, required: true }
 })
 
-const emit = defineEmits(['close', 'kb-created', 'kb-deleted', 'files-imported', 'kb-imported'])
+const emit = defineEmits(['close', 'kb-created', 'kb-deleted', 'import-stream'])
 
 // ── Create ────────────────────────────────────────────────────
 const createName = ref('')
@@ -220,29 +224,35 @@ watch(() => props.active, async (val) => {
 const importDir = ref('')
 const zipInput = ref(null)
 const zipFileName = ref('')
+const importLoading = ref(false)
 
 function onZipSelected(e) {
   zipFileName.value = e.target.files[0]?.name || ''
 }
 
 async function doImport() {
+  if (props.taskRunning || importLoading.value) return
   try {
     if (zipInput.value?.files[0]) {
       const formData = new FormData()
       formData.append('file', zipInput.value.files[0])
-      await props.importZipApi(formData)
+      importLoading.value = true
+      emit('import-stream', { type: 'zip', formData })
+      importDir.value = ''
+      zipFileName.value = ''
+      if (zipInput.value) zipInput.value.value = ''
     } else if (importDir.value.trim()) {
-      await props.importApi(importDir.value.trim())
+      importLoading.value = true
+      emit('import-stream', { type: 'dir', dirPath: importDir.value.trim() })
+      importDir.value = ''
     } else {
       alert('Please provide a directory path or select a ZIP file')
       return
     }
-    emit('files-imported')
-    importDir.value = ''
-    zipFileName.value = ''
-    if (zipInput.value) zipInput.value.value = ''
   } catch (err) {
     alert(`Import failed: ${err.message}`)
+  } finally {
+    importLoading.value = false
   }
 }
 
@@ -255,6 +265,7 @@ function onKbZipSelected(e) {
 }
 
 async function doImportKb() {
+  if (props.taskRunning || importLoading.value) return
   try {
     if (!kbZipInput.value?.files[0]) {
       alert('Please select a ZIP file')
@@ -262,12 +273,14 @@ async function doImportKb() {
     }
     const formData = new FormData()
     formData.append('file', kbZipInput.value.files[0])
-    const result = await props.importKbApi(formData)
-    emit('kb-imported', result.id || result)
+    importLoading.value = true
+    emit('import-stream', { type: 'kb', formData })
     kbZipFileName.value = ''
     if (kbZipInput.value) kbZipInput.value.value = ''
   } catch (err) {
     alert(`Import kb failed: ${err.message}`)
+  } finally {
+    importLoading.value = false
   }
 }
 

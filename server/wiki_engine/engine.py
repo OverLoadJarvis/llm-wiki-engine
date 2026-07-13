@@ -184,7 +184,7 @@ class LLMWikiEngine:
         """对知识库中的所有 raw 文件执行完整的知识库构建流程。
 
         流程：
-            1. 获取知识库中所有 raw 文件
+            1. 获取知识库中尚未摄入的 raw 文件（已存在于 wiki/sources/ 的跳过）
             2. 逐个执行 LLM 摄入
             3. （可选）构建知识图谱
 
@@ -206,6 +206,20 @@ class LLMWikiEngine:
             graph_builder=self._graph if not skip_graph else None,
         )
 
+    def build_knowledge_base_stream(
+        self,
+        kb_id: int,
+        auto_convert: bool = True,
+        skip_graph: bool = False,
+    ):
+        """流式构建知识库，逐步 yield 进度事件。"""
+        yield from self._ingest.build_knowledge_base_stream(
+            kb_id,
+            auto_convert=auto_convert,
+            skip_graph=skip_graph,
+            graph_builder=self._graph if not skip_graph else None,
+        )
+
     # ── 核心工作流 2: 更新知识库 ────────────────────────────────────
 
     def update_knowledge_base(
@@ -213,18 +227,20 @@ class LLMWikiEngine:
         kb_id: int,
         source_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        """增量更新知识库。
-
-        若提供了 ``source_dir``，先导入新的原始文件，然后只摄入尚未处理的新文件。
-
-        Args:
-            kb_id: 知识库 ID
-            source_dir: 可选的源文件目录路径
-
-        Returns:
-            与 :meth:`build_knowledge_base` 格式相同的字典
-        """
+        """增量更新知识库。"""
         return self._ingest.update_knowledge_base(kb_id, source_dir)
+
+    def update_knowledge_base_stream(
+        self,
+        kb_id: int,
+        source_dir: str | Path | None = None,
+    ):
+        """流式增量更新知识库。"""
+        yield from self._ingest.update_knowledge_base_stream(kb_id, source_dir)
+
+    def import_raw_files_stream(self, kb_id: int, source_dir: str | Path):
+        """流式导入本地目录中的原始文件。"""
+        yield from self._importer.import_raw_files_stream(kb_id, source_dir)
 
     # ── 核心工作流 3: 查询知识库 ────────────────────────────────────
 

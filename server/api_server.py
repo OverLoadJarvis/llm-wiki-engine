@@ -426,21 +426,210 @@ def search_files(kb_id):
 
 # ── 引擎工作流 API ────────────────────────────────────────────────────
 
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_response(event_iter):
+    """将事件迭代器包装为 SSE Response。"""
+    def generate():
+        try:
+            for event in event_iter:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+def _set_kb_state(kb_id: int, state: str) -> None:
+    db = get_db()
+    try:
+        db.set_kb_state(kb_id, state)
+    finally:
+        db.close()
+
+
+def _save_upload_to_temp(file) -> Path:
+    """在请求上下文内将上传文件落盘，供 SSE 生成器稍后读取。"""
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        file.save(tmp.name)
+        return Path(tmp.name)
+
+
+def _stream_build_events(kb_id: int):
+    """构建知识库 SSE 事件流，并管理 KB 状态。"""
+    _set_kb_state(kb_id, "building")
+    engine = get_engine()
+    final_state = "unbuilt"
+    try:
+        for event in engine.build_knowledge_base_stream(kb_id):
+            ev = event.get("event")
+            if ev == "done":
+                final_state = "completed"
+            elif ev == "error":
+                final_state = "unbuilt"
+            yield event
+    except Exception as e:
+        logger.exception("Build stream failed: kb_id=%s", kb_id)
+        final_state = "unbuilt"
+        yield {"event": "error", "message": str(e)}
+    finally:
+        engine.close()
+        _set_kb_state(kb_id, final_state)
+
+
+def _stream_update_events(kb_id: int, source_dir: str | None):
+    """增量更新知识库 SSE 事件流，并管理 KB 状态。"""
+    _set_kb_state(kb_id, "building")
+    engine = get_engine()
+    final_state = "unbuilt"
+    try:
+        for event in engine.update_knowledge_base_stream(kb_id, source_dir):
+            ev = event.get("event")
+            if ev == "done":
+                final_state = "completed"
+            elif ev == "error":
+                final_state = "unbuilt"
+            yield event
+    except Exception as e:
+        logger.exception("Update stream failed: kb_id=%s", kb_id)
+        final_state = "unbuilt"
+        yield {"event": "error", "message": str(e)}
+    finally:
+        engine.close()
+        _set_kb_state(kb_id, final_state)
+
+
+def _stream_import_dir_events(kb_id: int, source_dir: str):
+    """目录导入 SSE 事件流。"""
+    engine = get_engine()
+    try:
+        for event in engine.import_raw_files_stream(kb_id, source_dir):
+            yield event
+    finally:
+        engine.close()
+
+
+def _stream_import_zip_events(kb_id: int, tmp_path: Path):
+    """ZIP 上传导入 SSE 事件流（tmp_path 须在请求上下文内预先落盘）。"""
+    import zipfile
+
+    db = get_db()
+    try:
+        kb = db.get_kb(kb_id)
+        if not kb:
+            yield {"event": "error", "message": "知识库不存在"}
+            return
+
+        extract_dir = DEFAULT_UPLOAD_DIR / kb["name"]
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            yield {"event": "extracting", "path": str(extract_dir)}
+            with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                zf.extractall(str(extract_dir))
+
+            engine = get_engine()
+            try:
+                logger.info("Importing files from %s (stream)", extract_dir)
+                for event in engine.import_raw_files_stream(kb_id, str(extract_dir)):
+                    yield event
+            finally:
+                engine.close()
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+    finally:
+        db.close()
+
+
+def _stream_import_kb_events(tmp_path: Path, kb_name: str):
+    """Import KB ZIP SSE 事件流（tmp_path 须在请求上下文内预先落盘）。"""
+    import zipfile
+
+    db = get_db()
+    try:
+        existing = db.get_kb_by_name(kb_name)
+        if existing:
+            yield {"event": "error", "message": f'知识库 "{kb_name}" 已存在'}
+            return
+
+        kb_id = db.create_kb(kb_name)
+
+        try:
+            with zipfile.ZipFile(str(tmp_path), "r") as zf:
+                entries = [info for info in zf.infolist() if not info.is_dir()]
+                total = len(entries)
+                yield {
+                    "event": "start",
+                    "kb_name": kb_name,
+                    "total": total,
+                    "task": "import_kb",
+                }
+
+                file_count = 0
+                for index, info in enumerate(entries, start=1):
+                    rel_path = info.filename.replace("\\", "/")
+                    yield {
+                        "event": "file_start",
+                        "file": rel_path,
+                        "index": index,
+                        "total": total,
+                    }
+                    try:
+                        content = zf.read(info.filename)
+                        db.add_file(kb_id, rel_path, content)
+                        file_count += 1
+                        yield {"event": "file_imported", "file": rel_path}
+                    except Exception as e:
+                        logger.error("Import KB file error: %s: %s", rel_path, e)
+                        yield {"event": "file_error", "file": rel_path, "error": str(e)}
+
+                yield {
+                    "event": "done",
+                    "result": {
+                        "kb_id": kb_id,
+                        "kb_name": kb_name,
+                        "file_count": file_count,
+                    },
+                }
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+    finally:
+        db.close()
+
+
 @app.route("/api/kbs/<int:kb_id>/build", methods=["POST"])
 def build_knowledge_base(kb_id):
-    """构建知识库（完整流程：解析、索引、生成图谱等）。不会构建隐式边
+    """构建知识库（增量摄入未处理的 raw 文件，已摄入的自动跳过；可选构建图谱）。
 
     POST /api/kbs/<kb_id>/build
 
     路径参数:
         - kb_id (int): 知识库 ID
 
+    请求体 (JSON, 可选):
+        - stream (bool): 是否启用 SSE 进度流（默认 false）
+
     行为:
         构建前将知识库状态设为 building，构建完成后设为 completed。
 
     响应:
-        200: 构建结果对象
+        200: 构建结果对象，或 text/event-stream (SSE)
     """
+    data = request.get_json(silent=True) or {}
+    if data.get("stream"):
+        return _sse_response(_stream_build_events(kb_id))
+
     db = get_db()
     try:
         db.set_kb_state(kb_id, "building")
@@ -480,15 +669,19 @@ def update_knowledge_base(kb_id):
 
     请求体 (JSON, 可选):
         - source_dir (str, 可选): 源文件目录路径，若提供则先导入新文件再增量摄入
+        - stream (bool): 是否启用 SSE 进度流（默认 false）
 
     行为:
         更新前将知识库状态设为 building，更新完成后设为 completed。
 
     响应:
-        200: 更新结果对象，status 可能为 "up_to_date" 或 "completed"
+        200: 更新结果对象，或 text/event-stream (SSE)
     """
     data = request.get_json(silent=True) or {}
     source_dir = data.get("source_dir")
+
+    if data.get("stream"):
+        return _sse_response(_stream_update_events(kb_id, source_dir))
 
     db = get_db()
     try:
@@ -640,15 +833,21 @@ def import_files(kb_id):
 
     请求体 (JSON):
         - source_dir (str): 源文件目录的绝对或相对路径
+        - stream (bool, 可选): 是否启用 SSE 进度流（默认 false）
 
     响应:
         200: {"imported": <成功数>, "skipped": <跳过数>, "errors": <错误数>}
+             或 text/event-stream (SSE)
         400: {"error": "缺少 source_dir 参数"}
     """
     data = request.get_json(force=True)
     source_dir = data.get("source_dir", "")
     if not source_dir:
         return jsonify({"error": "缺少 source_dir 参数"}), 400
+
+    if data.get("stream"):
+        return _sse_response(_stream_import_dir_events(kb_id, source_dir))
+
     engine = get_engine()
     try:
         result = engine.import_raw_files(kb_id, source_dir)
@@ -669,6 +868,9 @@ def import_zip(kb_id):
     请求体 (multipart/form-data):
         - file (file): ZIP 压缩包文件
 
+    查询参数:
+        - stream (bool, 可选): 是否启用 SSE 进度流（默认 false）
+
     行为:
         1. 将 ZIP 文件保存到临时目录
         2. 解压缩到 ``uploads/<kb_name>/`` 目录
@@ -676,6 +878,7 @@ def import_zip(kb_id):
 
     响应:
         200: {"imported": <成功数>, "skipped": <跳过数>, "errors": <错误数>}
+             或 text/event-stream (SSE)
         400: {"error": "..."}
         404: {"error": "知识库不存在"}
     """
@@ -688,6 +891,11 @@ def import_zip(kb_id):
 
     if not file.filename.lower().endswith(".zip"):
         return jsonify({"error": "仅支持 .zip 格式的压缩包"}), 400
+
+    stream = request.args.get("stream", "").lower() in ("1", "true", "yes")
+    if stream:
+        tmp_path = _save_upload_to_temp(file)
+        return _sse_response(_stream_import_zip_events(kb_id, tmp_path))
 
     db = get_db()
     try:
@@ -800,13 +1008,17 @@ def import_kb():
     请求体 (multipart/form-data):
         - file (file): 知识库 ZIP 压缩包
 
+    查询参数:
+        - stream (bool, 可选): 是否启用 SSE 进度流（默认 false）
+
     行为:
         1. 以 ZIP 文件名（不含扩展名）作为知识库名称，创建新知识库
         2. 将 ZIP 内所有文件直接写入数据库（raw/、wiki/、graph/ 等目录结构）
         3. 不触发知识库构建等引擎行为，纯数据落库
 
     响应:
-        200: {"kb_id": <ID>, "kb_name": "<名称>", "file_count": <N>}
+        201: {"kb_id": <ID>, "kb_name": "<名称>", "file_count": <N>}
+             或 text/event-stream (SSE)
         400: {"error": "..."}
         409: {"error": "知识库已存在"}
     """
@@ -820,8 +1032,21 @@ def import_kb():
     if not file.filename.lower().endswith(".zip"):
         return jsonify({"error": "仅支持 .zip 格式的压缩包"}), 400
 
-    # 以 ZIP 文件名（不含扩展名）作为知识库名称
+    stream = request.args.get("stream", "").lower() in ("1", "true", "yes")
     kb_name = Path(file.filename).stem
+
+    if stream:
+        db = get_db()
+        try:
+            existing = db.get_kb_by_name(kb_name)
+            if existing:
+                return jsonify({"error": f"知识库 \"{kb_name}\" 已存在"}), 409
+        finally:
+            db.close()
+        tmp_path = _save_upload_to_temp(file)
+        return _sse_response(_stream_import_kb_events(tmp_path, kb_name))
+
+    # 以 ZIP 文件名（不含扩展名）作为知识库名称
 
     db = get_db()
     try:

@@ -4,6 +4,7 @@
     <Topbar
       :kbs="kbs"
       :selected-kb-id="currentKbId"
+      :task-running="taskRunning"
       @select-kb="onSelectKb"
       @create-kb="openModal('create')"
       @delete-kb="openModal('delete')"
@@ -102,7 +103,30 @@
     </div>
 
     <!-- Status Bar -->
-    <StatusBar :status-text="statusText" :status-kb="statusKb" />
+    <StatusBar
+      :status-text="statusText"
+      :status-kb="statusKb"
+      :task-running="taskRunning"
+      :current-file="activeTask?.currentFile || ''"
+    />
+
+    <!-- Task Progress Panel -->
+    <TaskProgressPanel
+      v-if="activeTask"
+      :visible="activeTask.visible"
+      :minimized="activeTask.minimized"
+      :running="activeTask.running"
+      :title="activeTask.title"
+      :current="activeTask.current"
+      :total="activeTask.total"
+      :current-file="activeTask.currentFile"
+      :logs="activeTask.logs"
+      :summary="activeTask.summary"
+      :has-errors="activeTask.hasErrors"
+      @close="closeTaskPanel"
+      @minimize="activeTask.minimized = true"
+      @restore="activeTask.minimized = false"
+    />
 
     <!-- Chat Panel -->
     <ChatPanel
@@ -115,20 +139,17 @@
     <ModalGroup
       :active="activeModal"
       :kb-name="currentKbName"
+      :task-running="taskRunning"
       :query-api="queryApi"
       :create-api="createKbApi"
       :delete-api="deleteKbApi"
-      :import-api="importFilesApi"
-      :import-zip-api="importZipApi"
-      :import-kb-api="importKbApi"
       :lint-api="lintKbApi"
       :instruction-api="getInstructionApi"
       :set-instruction-api="setInstructionApi"
       @close="activeModal = ''"
       @kb-created="onKbCreated"
       @kb-deleted="onKbDeleted"
-      @files-imported="onFilesImported"
-      @kb-imported="onKbImported"
+      @import-stream="onImportStream"
     />
   </div>
 </template>
@@ -143,7 +164,9 @@ import DetailPanel from './components/DetailPanel.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import ModalGroup from './components/ModalGroup.vue'
 import StatusBar from './components/StatusBar.vue'
-import { api, apiText, apiDownload, apiUpload } from './utils/api.js'
+import TaskProgressPanel from './components/TaskProgressPanel.vue'
+import { api, apiText, apiDownload } from './utils/api.js'
+import { consumeSSE, consumeSSEUpload } from './utils/sse.js'
 
 // ── State ─────────────────────────────────────────────────────
 const kbs = ref([])
@@ -163,6 +186,9 @@ const statusKb = ref('')
 const activeModal = ref('')
 const selectedNode = ref(null)
 const graphViewRef = ref(null)
+const activeTask = ref(null)
+
+const taskRunning = computed(() => activeTask.value?.running ?? false)
 
 const graphAdjacencyMap = computed(() => graphViewRef.value?.adjacencyMap || new Map())
 const graphNodeIndex = computed(() => graphViewRef.value?.nodeIndex || new Map())
@@ -233,19 +259,127 @@ async function deleteKbApi() {
   return api(`/kbs/${currentKbId.value}`, { method: 'DELETE' })
 }
 
-async function importFilesApi(dirPath) {
-  return api(`/kbs/${currentKbId.value}/import`, {
-    method: 'POST',
-    body: JSON.stringify({ source_dir: dirPath })
-  })
+// ── Task / SSE ────────────────────────────────────────────────
+function createTask(type, title) {
+  activeTask.value = {
+    type,
+    title,
+    running: true,
+    current: 0,
+    total: 0,
+    currentFile: '',
+    logs: [],
+    summary: '',
+    hasErrors: false,
+    minimized: false,
+    visible: true
+  }
 }
 
-async function importZipApi(formData) {
-  return apiUpload(`/kbs/${currentKbId.value}/import-zip`, formData)
+function handleTaskEvent(event) {
+  const task = activeTask.value
+  if (!task) return
+
+  switch (event.event) {
+    case 'start':
+      task.total = event.total || 0
+      if (event.kb_name) {
+        const skipped = event.skipped ? `, ${event.skipped} already ingested` : ''
+        task.logs.push({
+          status: 'info',
+          message: `${event.kb_name}: ${event.total} to process${skipped}`
+        })
+      }
+      break
+    case 'uploading':
+      task.logs.push({ status: 'info', message: 'Uploading ZIP...' })
+      break
+    case 'extracting':
+      task.logs.push({ status: 'info', message: 'Extracting archive...' })
+      break
+    case 'import_start':
+      task.logs.push({ status: 'info', message: `Importing from ${event.source_dir}` })
+      break
+    case 'file_start':
+      task.current = Math.max(0, (event.index || 1) - 1)
+      task.total = event.total || task.total
+      task.currentFile = event.file || ''
+      statusText.value = `Processing: ${event.file}`
+      break
+    case 'file_done':
+    case 'file_imported':
+      task.current = event.index ?? task.current + 1
+      task.logs.push({ status: 'ok', message: event.file })
+      break
+    case 'file_skipped':
+      task.logs.push({ status: 'skip', message: `${event.file} (skipped)` })
+      break
+    case 'file_error':
+      task.hasErrors = true
+      task.logs.push({ status: 'error', message: `${event.file}: ${event.error}` })
+      break
+    case 'graph_start':
+      task.logs.push({ status: 'info', message: 'Building knowledge graph...' })
+      task.currentFile = 'Building graph...'
+      break
+    case 'graph_done':
+      task.logs.push({
+        status: 'info',
+        message: `Graph: ${event.n_nodes} nodes, ${event.n_edges} edges`
+      })
+      break
+    case 'graph_error':
+      task.hasErrors = true
+      task.logs.push({ status: 'error', message: `Graph: ${event.error}` })
+      break
+    default:
+      break
+  }
 }
 
-async function importKbApi(formData) {
-  return apiUpload('/kbs/import', formData)
+function finishTask(result, type) {
+  const task = activeTask.value
+  if (!task) return
+  task.running = false
+  task.currentFile = ''
+  if (task.total > 0) task.current = task.total
+
+  if (type === 'build') {
+    if (result?.status === 'up_to_date') {
+      const skipped = result?.skipped ?? 0
+      task.summary = `Up to date: ${skipped} file(s) already ingested`
+    } else {
+      const ingested = result?.ingested ?? 0
+      const skipped = result?.skipped ?? 0
+      const errCount = Array.isArray(result?.errors) ? result.errors.length : 0
+      task.summary = `Build complete: ${ingested} ingested${skipped ? `, ${skipped} skipped` : ''}${errCount ? `, ${errCount} errors` : ''}`
+    }
+    statusText.value = task.summary
+  } else if (type === 'import' || type === 'import_zip') {
+    const imported = result?.imported ?? 0
+    const skipped = result?.skipped ?? 0
+    const errors = result?.errors ?? 0
+    task.summary = `Imported ${imported}, skipped ${skipped}, errors ${errors}`
+    statusText.value = task.summary
+  } else if (type === 'import_kb') {
+    task.summary = `KB "${result?.kb_name}" imported (${result?.file_count} files)`
+    statusText.value = task.summary
+  }
+}
+
+function failTask(err) {
+  const task = activeTask.value
+  if (!task) return
+  task.running = false
+  task.hasErrors = true
+  task.summary = `Failed: ${err.message}`
+  task.logs.push({ status: 'error', message: err.message })
+  statusText.value = task.summary
+}
+
+function closeTaskPanel() {
+  if (activeTask.value?.running) return
+  activeTask.value = null
 }
 
 async function lintKbApi() {
@@ -401,20 +535,36 @@ async function onSaveFile({ filePath, content }) {
 }
 
 async function buildKnowledgeBase() {
+  if (taskRunning.value) return
   if (!currentKbId.value) return alert('Please select a kb first')
-  if (!confirm('Build knowledge base? This may take a while.')) return
+  if (!confirm('Build knowledge base? Only new raw files will be ingested.')) return
+
+  createTask('build', 'Building Knowledge Base')
   statusText.value = 'Building knowledge base...'
+  await loadKbs()
+
   try {
-    const result = await api(`/kbs/${currentKbId.value}/build`, { method: 'POST' })
-    statusText.value = `Build complete: ${result.ingested} files ingested`
+    const result = await consumeSSE(
+      `/api/kbs/${currentKbId.value}/build`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stream: true })
+      },
+      handleTaskEvent
+    )
+    finishTask(result, 'build')
+    await loadKbs()
     await loadKb(currentKbId.value)
   } catch (err) {
-    statusText.value = `Build failed: ${err.message}`
+    failTask(err)
+    await loadKbs()
     alert(`Build failed: ${err.message}`)
   }
 }
 
 async function buildGraph() {
+  if (taskRunning.value) return
   if (!currentKbId.value) return alert('Please select a kb first')
   statusText.value = 'Building graph...'
   try {
@@ -462,15 +612,63 @@ async function onKbDeleted() {
   activeModal.value = ''
 }
 
-async function onFilesImported() {
-  await loadKb(currentKbId.value)
+async function onImportStream(payload) {
+  if (taskRunning.value) return
   activeModal.value = ''
-}
 
-async function onKbImported(kid) {
-  await loadKbs()
-  await onSelectKb(kid)
-  activeModal.value = ''
+  const { type, dirPath, formData } = payload
+
+  if (type === 'dir') {
+    createTask('import', 'Importing Files')
+    statusText.value = 'Importing files...'
+    try {
+      const result = await consumeSSE(
+        `/api/kbs/${currentKbId.value}/import`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_dir: dirPath, stream: true })
+        },
+        handleTaskEvent
+      )
+      finishTask(result, 'import')
+      await loadKb(currentKbId.value)
+    } catch (err) {
+      failTask(err)
+      alert(`Import failed: ${err.message}`)
+    }
+  } else if (type === 'zip') {
+    createTask('import_zip', 'Importing ZIP')
+    statusText.value = 'Importing ZIP...'
+    try {
+      const result = await consumeSSEUpload(
+        `/api/kbs/${currentKbId.value}/import-zip?stream=true`,
+        formData,
+        handleTaskEvent
+      )
+      finishTask(result, 'import_zip')
+      await loadKb(currentKbId.value)
+    } catch (err) {
+      failTask(err)
+      alert(`Import failed: ${err.message}`)
+    }
+  } else if (type === 'kb') {
+    createTask('import_kb', 'Importing KB')
+    statusText.value = 'Importing KB...'
+    try {
+      const result = await consumeSSEUpload(
+        '/api/kbs/import?stream=true',
+        formData,
+        handleTaskEvent
+      )
+      finishTask(result, 'import_kb')
+      await loadKbs()
+      if (result?.kb_id) await onSelectKb(result.kb_id)
+    } catch (err) {
+      failTask(err)
+      alert(`Import KB failed: ${err.message}`)
+    }
+  }
 }
 
 onMounted(() => {
