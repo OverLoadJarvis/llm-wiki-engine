@@ -1,0 +1,29 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# 使用清华 Debian 镜像加速 apt
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY server/requirements-docker.txt .
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --no-cache-dir -r requirements-docker.txt
+
+COPY server/ ./server/
+
+RUN mkdir -p server/uploads
+
+WORKDIR /app/server
+
+EXPOSE 5000 8081
+
+CMD ["python", "api_server.py"]

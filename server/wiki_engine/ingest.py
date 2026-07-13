@@ -187,13 +187,13 @@ class IngestWorkflow:
         wiki_context = build_wiki_context(self.db, kb_id)
         schema = SCHEMA_FILE.read_text(encoding="utf-8")
         kb = self.db.get_kb(kb_id)
-        proj_name = kb["name"] if kb else "unknown"
+        kb_name = kb["name"] if kb else "unknown"
         ingest_instruction = self.db.get_ingest_instruction(kb_id)
         if not ingest_instruction.strip():
             ingest_instruction = "（无特殊指令，按默认规范处理）"
 
         prompt = INGEST_PROMPT.format(
-            proj_name=proj_name,
+            kb_name=kb_name,
             schema=schema,
             wiki_context=wiki_context if wiki_context else "(Wiki 为空 — 这是第一份源文档)",
             source_filename=source_filename,

@@ -3,7 +3,12 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+**/.venv/
+server/.venv/
 .env
+.cursor/
+.trae/
+openspec/
 .git/
 .gitignore
 *.db
