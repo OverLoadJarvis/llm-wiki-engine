@@ -42,6 +42,10 @@ ui/dist/
 ui/node_modules/
 ui-apple/dist/
 ui-apple/node_modules/
+ui-apple/.vite/
+
+# Local docs (not for remote)
+docs/孙子兵法/
 
 .codegraph/
 
