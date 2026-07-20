@@ -16,8 +16,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from storage.db import WikiStorage
-from wiki_engine.constants import SCHEMA_FILE
-from wiki_engine.prompt import INGEST_PROMPT
+from wiki_engine.prompt import FORMAT_SELECT_PROMPT, INGEST_PROMPT
+from wiki_engine.format_schema import (
+    build_ingest_schema,
+    format_catalog_for_prompt,
+    resolve_source_format_ids,
+)
 from wiki_engine.graph import GraphWorkflow
 from wiki_engine.helpers import (
     append_log,
@@ -37,6 +41,9 @@ from tools.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 格式预判时送入 LLM 的正文截断长度
+_FORMAT_SELECT_EXCERPT_CHARS = 3000
+
 
 class IngestWorkflow:
     """知识库摄入工作流。
@@ -52,6 +59,51 @@ class IngestWorkflow:
     def __init__(self, db: WikiStorage, file_importer: FileImporter) -> None:
         self.db = db
         self.file_importer = file_importer
+
+    def _select_formats_for_ingest(
+        self, source_filename: str, source_content: str
+    ) -> tuple[list[str], str]:
+        """用 LLM 预判来源页格式，返回 (format_ids, reason)。
+
+        失败时回退为通用来源页格式 ``["3"]``。
+        """
+        catalog = format_catalog_for_prompt()
+        excerpt = source_content[:_FORMAT_SELECT_EXCERPT_CHARS]
+        prompt = FORMAT_SELECT_PROMPT.format(
+            format_catalog=catalog,
+            source_filename=source_filename,
+            source_excerpt=excerpt,
+        )
+        logger.info(
+            "Format select start: file=%s, excerpt_len=%d",
+            source_filename,
+            len(excerpt),
+        )
+        try:
+            raw = call_llm(
+                prompt,
+                max_tokens=512,
+                validate_json=True,
+            )
+            data = parse_json_from_response(raw)
+            selected = data.get("format_ids") or []
+            reason = str(data.get("reason") or "")
+            resolved = resolve_source_format_ids(selected)
+            logger.info(
+                "Format select ok: file=%s, selected=%s, resolved=%s, reason=%s",
+                source_filename,
+                selected,
+                resolved,
+                reason,
+            )
+            return resolved, reason
+        except Exception as e:
+            logger.warning(
+                "Format select failed, fallback to [3]: file=%s, error=%s",
+                source_filename,
+                e,
+            )
+            return ["3"], f"fallback: {e}"
 
     def _select_pending_raw_files(
         self, kb_id: int, raw_files: list[dict]
@@ -260,7 +312,17 @@ class IngestWorkflow:
         rel_path = raw_relative_path or f"raw/{Path(source_filename).name}"
 
         wiki_context = build_wiki_context(self.db, kb_id)
-        schema = SCHEMA_FILE.read_text(encoding="utf-8")
+        format_ids, format_reason = self._select_formats_for_ingest(
+            source_filename, source_content
+        )
+        schema = build_ingest_schema(format_ids)
+        logger.info(
+            "Ingest schema assembled: file=%s, format_ids=%s, schema_len=%d, reason=%s",
+            source_filename,
+            format_ids,
+            len(schema),
+            format_reason,
+        )
         kb = self.db.get_kb(kb_id)
         kb_name = kb["name"] if kb else "unknown"
         ingest_instruction = self.db.get_ingest_instruction(kb_id)

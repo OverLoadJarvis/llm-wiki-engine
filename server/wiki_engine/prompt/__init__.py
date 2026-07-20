@@ -5,6 +5,7 @@
 """
 
 from wiki_engine.prompt.prompts import (
+    FORMAT_SELECT_PROMPT,
     INGEST_PROMPT,
     QUERY_ANSWER_PROMPT,
     QUERY_RELEVANT_PAGES_PROMPT,
@@ -14,6 +15,7 @@ from wiki_engine.prompt.prompts import (
 )
 
 __all__ = [
+    "FORMAT_SELECT_PROMPT",
     "INGEST_PROMPT",
     "QUERY_ANSWER_PROMPT",
     "QUERY_RELEVANT_PAGES_PROMPT",

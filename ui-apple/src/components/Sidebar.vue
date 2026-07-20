@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar glass">
+  <aside class="sidebar glass" :class="{ collapsed }">
     <!-- Header -->
     <div class="sidebar-header">
       <h3>Files</h3>
@@ -51,7 +51,8 @@ import { getFileType } from '../utils/api.js'
 const props = defineProps({
   tree: { type: Object, default: null },
   fileCount: { type: Number, default: 0 },
-  activePath: { type: String, default: '' }
+  activePath: { type: String, default: '' },
+  collapsed: { type: Boolean, default: false }
 })
 
 defineEmits(['select-file'])
@@ -194,6 +195,15 @@ function fileIcon(type) {
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--radius-xl);
+  transition: width 200ms ease, opacity 200ms ease, min-width 200ms ease;
+}
+
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
 }
 
 .sidebar-header {

@@ -13,25 +13,6 @@
       </div>
     </div>
 
-    <!-- Query Modal -->
-    <div v-if="active === 'query'" class="modal-overlay" @click.self="$emit('close')">
-      <div class="modal" style="width:500px;">
-        <h3>Query Knowledge Base</h3>
-        <input type="text" v-model="queryText" placeholder="Enter your question..." @keydown.enter="doQuery" />
-        <div class="query-result-area">
-          <div v-if="queryLoading" class="loading">
-            <div class="spinner"></div><span>Querying...</span>
-          </div>
-          <div v-else-if="queryError" class="query-error">{{ queryError }}</div>
-          <div v-else-if="queryResult" class="query-result">{{ queryResult }}</div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-outline" @click="$emit('close')">Close</button>
-          <button class="btn" @click="doQuery" :disabled="queryLoading">Query</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Lint Modal -->
     <div v-if="active === 'lint'" class="modal-overlay" @click.self="$emit('close')">
       <div class="modal" style="width:640px;max-width:90vw;">
@@ -137,7 +118,6 @@ const props = defineProps({
   active: { type: String, default: '' },
   kbName: { type: String, default: '' },
   taskRunning: { type: Boolean, default: false },
-  queryApi: { type: Function, required: true },
   createApi: { type: Function, required: true },
   deleteApi: { type: Function, required: true },
   lintApi: { type: Function, required: true },
@@ -170,27 +150,6 @@ async function doDelete() {
     emit('kb-deleted')
   } catch (err) {
     alert(`Delete failed: ${err.message}`)
-  }
-}
-
-// ── Query ─────────────────────────────────────────────────────
-const queryText = ref('')
-const queryResult = ref('')
-const queryLoading = ref(false)
-const queryError = ref('')
-
-async function doQuery() {
-  if (!queryText.value.trim()) return
-  queryLoading.value = true
-  queryError.value = ''
-  queryResult.value = ''
-  try {
-    const result = await props.queryApi(queryText.value.trim())
-    queryResult.value = result.answer || result.response || result.result || JSON.stringify(result)
-  } catch (err) {
-    queryError.value = err.message
-  } finally {
-    queryLoading.value = false
   }
 }
 

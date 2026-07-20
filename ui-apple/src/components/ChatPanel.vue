@@ -1,106 +1,98 @@
 <template>
-  <div>
-    <!-- Chat Toggle Button -->
-    <button v-show="!isOpen" class="chat-toggle-btn glass" @click="togglePanel" title="Chat with Knowledge Base">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    </button>
-
-    <!-- Chat Panel -->
-    <Transition name="chat-slide">
-      <div v-if="isOpen" class="chat-panel glass-strong">
-        <!-- Header -->
-        <div class="chat-header">
-          <div class="chat-header-left">
-            <div class="chat-ai-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83" />
-              </svg>
-            </div>
-            <div>
-              <h3>Knowledge Base Q&A</h3>
-              <span class="chat-subtitle">AI-powered answers</span>
-            </div>
-          </div>
-          <button class="chat-close" @click="togglePanel">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Messages -->
-        <div class="chat-messages" ref="messagesRef" @click="onMessageClick">
-          <div v-if="messages.length === 0" class="chat-welcome">
+  <aside class="chat-dock" :class="{ open }">
+    <div v-show="open" class="chat-panel glass-strong">
+      <!-- Header -->
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <div class="chat-ai-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4" />
+              <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83" />
             </svg>
-            <p>Ask questions about your knowledge base.<br/>AI will answer based on the content.</p>
           </div>
-
-          <div v-for="(msg, i) in messages" :key="i" class="chat-message" :class="msg.role">
-            <div class="chat-avatar">{{ msg.role === 'user' ? 'U' : '' }}
-              <svg v-if="msg.role === 'assistant'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83" />
-              </svg>
-            </div>
-            <div class="chat-bubble">
-              <template v-if="msg.role === 'assistant'">
-                <span v-html="rendered(msg.content)"></span>
-              </template>
-              <template v-else>{{ msg.content }}</template>
-            </div>
+          <div>
+            <h3>Knowledge Base Q&A</h3>
+            <span class="chat-subtitle">AI-powered answers</span>
           </div>
+        </div>
+        <button class="chat-close" @click="closePanel" title="Close chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
 
-          <div v-if="isTyping" class="chat-message assistant chat-typing">
-            <div class="chat-avatar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </div>
-            <div class="chat-bubble typing-dots">
-              <span></span><span></span><span></span>
-            </div>
+      <!-- Messages -->
+      <div class="chat-messages" ref="messagesRef" @click="onMessageClick">
+        <div v-if="messages.length === 0" class="chat-welcome">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4" />
+          </svg>
+          <p>Ask questions about your knowledge base.<br/>AI will answer based on the content.</p>
+        </div>
+
+        <div v-for="(msg, i) in messages" :key="i" class="chat-message" :class="msg.role">
+          <div class="chat-avatar">{{ msg.role === 'user' ? 'U' : '' }}
+            <svg v-if="msg.role === 'assistant'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83" />
+            </svg>
+          </div>
+          <div class="chat-bubble">
+            <template v-if="msg.role === 'assistant'">
+              <span v-html="rendered(msg.content)"></span>
+            </template>
+            <template v-else>{{ msg.content }}</template>
           </div>
         </div>
 
-        <!-- Input Area -->
-        <div class="chat-input-area glass-subtle">
-          <textarea
-            ref="inputRef"
-            v-model="inputText"
-            placeholder="Ask a question, press Enter to send..."
-            rows="1"
-            @keydown="onKeyDown"
-            @input="autoResize"
-          ></textarea>
-          <button class="chat-send-btn" :disabled="isTyping || !inputText.trim()" @click="sendMessage">
+        <div v-if="isTyping" class="chat-message assistant chat-typing">
+          <div class="chat-avatar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
+          </div>
+          <div class="chat-bubble typing-dots">
+            <span></span><span></span><span></span>
+          </div>
         </div>
       </div>
-    </Transition>
-  </div>
+
+      <!-- Input Area -->
+      <div class="chat-input-area glass-subtle">
+        <textarea
+          ref="inputRef"
+          v-model="inputText"
+          placeholder="Ask a question, press Enter to send..."
+          rows="1"
+          @keydown="onKeyDown"
+          @input="autoResize"
+        ></textarea>
+        <button class="chat-send-btn" :disabled="isTyping || !inputText.trim()" @click="sendMessage">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </aside>
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
+  open: { type: Boolean, default: false },
   currentKbId: { type: [String, Number], default: null },
   queryApi: { type: Function, required: true },
   openWikiLink: { type: Function, default: null }
 })
 
-const isOpen = ref(false)
+const emit = defineEmits(['update:open'])
+
 const inputText = ref('')
 const messages = ref([])
 const isTyping = ref(false)
@@ -111,16 +103,28 @@ function rendered(text) {
   return renderMarkdown(text)
 }
 
-function togglePanel() {
-  if (!props.currentKbId) {
-    alert('Please select a kb first')
-    return
-  }
-  isOpen.value = !isOpen.value
-  if (isOpen.value) {
-    nextTick(() => inputRef.value?.focus())
-  }
+function closePanel() {
+  emit('update:open', false)
 }
+
+watch(
+  () => props.open,
+  (val) => {
+    if (val) {
+      nextTick(() => inputRef.value?.focus())
+    }
+  }
+)
+
+watch(
+  () => props.currentKbId,
+  () => {
+    messages.value = []
+    inputText.value = ''
+    isTyping.value = false
+    console.log('[ChatPanel] cleared messages on kb change')
+  }
+)
 
 function onKeyDown(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -148,14 +152,21 @@ function onMessageClick(e) {
 async function sendMessage() {
   const text = inputText.value.trim()
   if (!text || isTyping.value) return
+  if (!props.currentKbId) {
+    alert('Please select a kb first')
+    return
+  }
 
+  console.log('[ChatPanel] send', { questionLen: text.length, kbId: props.currentKbId })
   messages.value.push({ role: 'user', content: text })
   inputText.value = ''
   autoResize()
   isTyping.value = true
 
   nextTick(() => {
-    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
   })
 
   let assistantMsg = null
@@ -170,7 +181,9 @@ async function sendMessage() {
         assistantMsg.content += chunk
       }
       nextTick(() => {
-        messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+        if (messagesRef.value) {
+          messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+        }
       })
     })
 
@@ -178,7 +191,9 @@ async function sendMessage() {
       isTyping.value = false
       messages.value.push({ role: 'assistant', content: 'No response received.' })
     }
+    console.log('[ChatPanel] reply ok')
   } catch (err) {
+    console.error('[ChatPanel] reply failed', err.message)
     isTyping.value = false
     if (assistantMsg) {
       assistantMsg.content += `\n\n*Error: ${err.message}*`
@@ -190,71 +205,30 @@ async function sendMessage() {
 </script>
 
 <style scoped>
-/* ── Toggle Button ─────────────────────────────────────────── */
-.chat-toggle-btn {
-  position: fixed;
-  bottom: 48px;
-  right: 20px;
-  z-index: 200;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--glass-border);
+.chat-dock {
+  width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 200ms ease;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--accent);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  transition: all var(--transition-normal);
+  flex-direction: column;
+  min-height: 0;
 }
 
-.chat-toggle-btn:hover {
-  transform: scale(1.08);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+.chat-dock.open {
+  width: 380px;
 }
 
-.chat-toggle-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* ── Panel ─────────────────────────────────────────────────── */
 .chat-panel {
-  position: fixed;
-  bottom: 48px;
-  right: 20px;
-  z-index: 199;
-  width: 400px;
-  height: 560px;
-  max-height: calc(100vh - 120px);
+  width: 380px;
+  height: 100%;
   border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12);
+  min-height: 0;
 }
 
-/* ── Slide Transition ──────────────────────────────────────── */
-.chat-slide-enter-active {
-  animation: chatSlideUp 350ms var(--ease-out-back);
-}
-
-.chat-slide-leave-active {
-  animation: chatSlideDown 250ms var(--ease-out-expo);
-}
-
-@keyframes chatSlideUp {
-  from { opacity: 0; transform: translateY(16px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes chatSlideDown {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(16px) scale(0.95); }
-}
-
-/* ── Header ────────────────────────────────────────────────── */
 .chat-header {
   display: flex;
   align-items: center;
@@ -317,7 +291,6 @@ async function sendMessage() {
   color: var(--text-primary);
 }
 
-/* ── Messages ──────────────────────────────────────────────── */
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -325,6 +298,7 @@ async function sendMessage() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .chat-welcome {
@@ -396,7 +370,7 @@ async function sendMessage() {
 .chat-message.user .chat-bubble {
   background: var(--accent);
   color: #fff;
-  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 
 .chat-message.assistant .chat-bubble {
@@ -425,7 +399,6 @@ async function sendMessage() {
   margin: 6px 0;
 }
 
-/* ── Typing Dots ───────────────────────────────────────────── */
 .typing-dots {
   display: flex;
   gap: 4px;
@@ -449,7 +422,6 @@ async function sendMessage() {
   40% { transform: scale(1); opacity: 1; }
 }
 
-/* ── Input Area ────────────────────────────────────────────── */
 .chat-input-area {
   display: flex;
   align-items: flex-end;

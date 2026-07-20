@@ -14,7 +14,7 @@
       @build-graph="buildGraph"
       @lint-kb="openModal('lint')"
       @export-kb="exportKb"
-      @show-query="openModal('query')"
+      @show-query="openChat"
       @set-instruction="openModal('instruction')"
     />
 
@@ -26,6 +26,7 @@
         :tree="fileTree"
         :file-count="fileCount"
         :active-path="currentFilePath"
+        :collapsed="sidebarCollapsed"
         @select-file="openFile"
       />
 
@@ -34,6 +35,18 @@
         <!-- Content Toolbar -->
         <div class="content-toolbar glass-subtle">
           <div class="toolbar-left">
+            <button
+              v-if="currentKbId"
+              class="btn btn-outline btn-sm toolbar-icon-btn"
+              :title="sidebarCollapsed ? 'Show files' : 'Hide files'"
+              @click="toggleSidebar"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <polyline v-if="!sidebarCollapsed" points="15 8 12 12 15 16" />
+              </svg>
+            </button>
             <span class="toolbar-title" v-if="currentView === 'graph'">Knowledge Graph</span>
             <span class="toolbar-title" v-else>{{ currentFilePath || 'Select a file' }}</span>
             <span class="badge" v-if="currentKbName">{{ currentKbName }}</span>
@@ -59,6 +72,17 @@
                 <line v-if="currentView === 'graph'" x1="9" y1="3" x2="9" y2="21" />
               </svg>
               {{ currentView === 'graph' ? 'File View' : 'Graph View' }}
+            </button>
+            <button
+              class="btn btn-outline btn-sm"
+              :class="{ 'btn-active': chatOpen }"
+              title="Chat"
+              @click="toggleChat"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              Chat
             </button>
           </div>
         </div>
@@ -100,6 +124,14 @@
           />
         </div>
       </div>
+
+      <!-- Chat Dock -->
+      <ChatPanel
+        v-model:open="chatOpen"
+        :current-kb-id="currentKbId"
+        :query-api="queryApi"
+        :open-wiki-link="openWikiLink"
+      />
     </div>
 
     <!-- Status Bar -->
@@ -128,19 +160,11 @@
       @restore="activeTask.minimized = false"
     />
 
-    <!-- Chat Panel -->
-    <ChatPanel
-      :current-kb-id="currentKbId"
-      :query-api="queryApi"
-      :open-wiki-link="openWikiLink"
-    />
-
     <!-- Modal Group -->
     <ModalGroup
       :active="activeModal"
       :kb-name="currentKbName"
       :task-running="taskRunning"
-      :query-api="queryApi"
       :create-api="createKbApi"
       :delete-api="deleteKbApi"
       :lint-api="lintKbApi"
@@ -187,6 +211,8 @@ const activeModal = ref('')
 const selectedNode = ref(null)
 const graphViewRef = ref(null)
 const activeTask = ref(null)
+const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === '1')
+const chatOpen = ref(false)
 
 const taskRunning = computed(() => activeTask.value?.running ?? false)
 
@@ -487,6 +513,30 @@ function toggleView() {
   }
 }
 
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  localStorage.setItem('sidebarCollapsed', sidebarCollapsed.value ? '1' : '0')
+  console.log('[App] sidebar collapsed=', sidebarCollapsed.value)
+}
+
+function openChat() {
+  if (!currentKbId.value) {
+    alert('Please select a kb first')
+    return
+  }
+  chatOpen.value = true
+  console.log('[App] chat opened')
+}
+
+function toggleChat() {
+  if (chatOpen.value) {
+    chatOpen.value = false
+    console.log('[App] chat closed')
+    return
+  }
+  openChat()
+}
+
 function onNodeClick(node) {
   selectedNode.value = node
 }
@@ -592,7 +642,7 @@ async function exportKb() {
 }
 
 function openModal(name) {
-  if (!currentKbId.value && ['delete', 'import', 'lint', 'query'].includes(name)) {
+  if (!currentKbId.value && ['delete', 'import', 'lint'].includes(name)) {
     alert('Please select a kb first')
     return
   }
@@ -741,7 +791,19 @@ onMounted(() => {
 .toolbar-right {
   display: flex;
   align-items: center;
+  gap: 8px;
   margin-left: auto;
+}
+
+.toolbar-icon-btn {
+  padding: 6px 8px;
+  flex-shrink: 0;
+}
+
+.toolbar-right .btn-active {
+  background: rgba(0, 122, 255, 0.1);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .confidence-control {
