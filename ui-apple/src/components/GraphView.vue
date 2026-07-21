@@ -1,5 +1,5 @@
 <template>
-  <div class="graph-view">
+  <div class="graph-view" ref="graphViewRef">
     <!-- Enhanced Starfield + Particle Backdrop -->
     <canvas ref="starfieldRef" class="starfield"></canvas>
 
@@ -84,6 +84,7 @@ const props = defineProps({
 
 const emit = defineEmits(['node-click', 'build-graph', 'update:confidence'])
 
+const graphViewRef = ref(null)
 const graphContainerRef = ref(null)
 const starfieldRef = ref(null)
 const particlesRef = ref(null)
@@ -92,6 +93,9 @@ let starfieldAnimId = null
 let particlesAnimId = null
 let hoverNodeId = null
 let pulsePhase = 0
+let starfieldResize = null
+let particlesResize = null
+let layoutResizeObserver = null
 
 const nodeTypeConfig = {
   concept:   { bg: '#FF9500', border: '#FFB340', shape: 'dot', borderWidth: 2, glow: 'rgba(255, 149, 0, 0.4)' },
@@ -136,7 +140,7 @@ function initStarfield() {
   }
 
   resize()
-  window.addEventListener('resize', resize)
+  starfieldResize = resize
 
   // Init stars with parallax layers
   for (let i = 0; i < STAR_COUNT; i++) {
@@ -233,11 +237,6 @@ function initStarfield() {
   }
 
   animate()
-
-  onBeforeUnmount(() => {
-    cancelAnimationFrame(starfieldAnimId)
-    window.removeEventListener('resize', resize)
-  })
 }
 
 function hexToRgb(hex) {
@@ -265,7 +264,7 @@ function initParticles() {
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
   }
   resize()
-  window.addEventListener('resize', resize)
+  particlesResize = resize
 
   // Initial free-floating particles
   for (let i = 0; i < 15; i++) {
@@ -431,11 +430,40 @@ function initParticles() {
   }
 
   animate()
+}
 
-  onBeforeUnmount(() => {
-    cancelAnimationFrame(particlesAnimId)
-    window.removeEventListener('resize', resize)
-  })
+// ── Layout resize (sidebar / chat dock / window) ─────────────
+function resizeNetwork() {
+  if (!network || !graphContainerRef.value) return
+  const { width, height } = graphContainerRef.value.getBoundingClientRect()
+  if (width <= 0 || height <= 0) return
+  try {
+    network.setSize(`${width}px`, `${height}px`)
+    network.redraw()
+  } catch (e) {
+    console.warn('[GraphView] network resize failed', e.message)
+  }
+}
+
+function handleLayoutResize() {
+  starfieldResize?.()
+  particlesResize?.()
+  resizeNetwork()
+}
+
+function setupLayoutResizeObserver() {
+  handleLayoutResize()
+  window.addEventListener('resize', handleLayoutResize)
+  if (graphViewRef.value) {
+    layoutResizeObserver = new ResizeObserver(handleLayoutResize)
+    layoutResizeObserver.observe(graphViewRef.value)
+  }
+}
+
+function teardownLayoutResizeObserver() {
+  window.removeEventListener('resize', handleLayoutResize)
+  layoutResizeObserver?.disconnect()
+  layoutResizeObserver = null
 }
 
 // ── Graph Rendering ───────────────────────────────────────────
@@ -626,12 +654,15 @@ function renderGraph() {
   network.on('doubleClick', function() {
     network.fit({ animation: { duration: 500, easingFunction: 'easeOutQuad' } })
   })
+
+  resizeNetwork()
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────
 onMounted(() => {
   initStarfield()
   initParticles()
+  setupLayoutResizeObserver()
   if (props.graphData) {
     setTimeout(renderGraph, 100)
   }
@@ -650,6 +681,9 @@ watch(() => props.confidence, () => {
 })
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(starfieldAnimId)
+  cancelAnimationFrame(particlesAnimId)
+  teardownLayoutResizeObserver()
   destroyNetwork()
 })
 
