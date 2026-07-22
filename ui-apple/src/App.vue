@@ -16,6 +16,7 @@
       @export-kb="exportKb"
       @show-query="openChat"
       @set-instruction="openModal('instruction')"
+      @llm-settings="openModal('llm-settings')"
     />
 
     <!-- Main Content Area -->
@@ -170,6 +171,9 @@
       :lint-api="lintKbApi"
       :instruction-api="getInstructionApi"
       :set-instruction-api="setInstructionApi"
+      :get-llm-settings-api="getLlmSettingsApi"
+      :set-llm-settings-api="setLlmSettingsApi"
+      :test-llm-settings-api="testLlmSettingsApi"
       @close="activeModal = ''"
       @kb-created="onKbCreated"
       @kb-deleted="onKbDeleted"
@@ -423,6 +427,53 @@ async function setInstructionApi(instruction) {
   })
 }
 
+async function getLlmSettingsApi() {
+  console.log('[api] GET /settings/llm')
+  try {
+    const res = await api('/settings/llm')
+    console.log('[api] GET /settings/llm ok', { api_key_set: !!res.api_key_set })
+    return res
+  } catch (err) {
+    console.error('[api] GET /settings/llm failed', err.message)
+    throw err
+  }
+}
+
+async function setLlmSettingsApi(body) {
+  console.log('[api] PUT /settings/llm', {
+    base_url: body.base_url,
+    model: body.model,
+    model_fast: body.model_fast,
+    api_key_provided: !!body.api_key
+  })
+  try {
+    const res = await api('/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    })
+    console.log('[api] PUT /settings/llm ok')
+    return res
+  } catch (err) {
+    console.error('[api] PUT /settings/llm failed', err.message)
+    throw err
+  }
+}
+
+async function testLlmSettingsApi(body) {
+  console.log('[api] POST /settings/llm/test', { which: body.which })
+  try {
+    const res = await api('/settings/llm/test', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+    console.log('[api] POST /settings/llm/test ok', { ok: res.ok })
+    return res
+  } catch (err) {
+    console.error('[api] POST /settings/llm/test failed', err.message)
+    throw err
+  }
+}
+
 // ── KB Management ─────────────────────────────────────────────
 async function loadKbs() {
   try {
@@ -642,7 +693,7 @@ async function exportKb() {
 }
 
 function openModal(name) {
-  if (!currentKbId.value && ['delete', 'import', 'lint'].includes(name)) {
+  if (!currentKbId.value && ['delete', 'import', 'lint', 'instruction'].includes(name)) {
     alert('Please select a kb first')
     return
   }

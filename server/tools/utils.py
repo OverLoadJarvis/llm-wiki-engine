@@ -41,8 +41,14 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     except ImportError:
         logger.error("litellm not installed. Run: pip install litellm")
         sys.exit(1)
-    
-    model = os.getenv(model_env, default_model)
+
+    from tools.llm_config import get_resolved
+
+    cfg = get_resolved(default_model=default_model)
+    if model_env == "LLM_MODEL_FAST":
+        model = cfg["model_fast"] or default_model
+    else:
+        model = cfg["model"] or default_model
 
     kwargs = {
         "model": model,
@@ -52,8 +58,8 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
     
-    api_base = os.getenv("OPENAI_API_BASE")
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_base = cfg["base_url"]
+    api_key = cfg["api_key"]
     
     if api_base:
         kwargs["api_base"] = api_base
@@ -69,10 +75,15 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     current_prompt = prompt
     max_retries = 5
     
+    logger.info("Calling LLM: model=%s, prompt_len=%d, api_base=%s", model, len(prompt), api_base or "(default)")
     for attempt in range(1, max_retries + 1):
         kwargs["messages"] = [{"role": "system", "content": current_prompt}]
-        response = completion(**kwargs)
-        content = response.choices[0].message.content
+        try:
+            response = completion(**kwargs)
+            content = response.choices[0].message.content
+        except Exception:
+            logger.exception("LLM call failed: model=%s, attempt=%d", model, attempt)
+            raise
         
         # 最后一次不校验，直接返回
         if not validate_json or attempt == max_retries:
@@ -115,7 +126,13 @@ def call_llm_stream(prompt: str, model_env: str = "LLM_MODEL", default_model: st
         logger.error("litellm not installed. Run: pip install litellm")
         sys.exit(1)
 
-    model = os.getenv(model_env, default_model)
+    from tools.llm_config import get_resolved
+
+    cfg = get_resolved(default_model=default_model)
+    if model_env == "LLM_MODEL_FAST":
+        model = cfg["model_fast"] or default_model
+    else:
+        model = cfg["model"] or default_model
 
     kwargs = {
         "model": model,
@@ -127,8 +144,8 @@ def call_llm_stream(prompt: str, model_env: str = "LLM_MODEL", default_model: st
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
 
-    api_base = os.getenv("OPENAI_API_BASE")
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_base = cfg["base_url"]
+    api_key = cfg["api_key"]
 
     if api_base:
         kwargs["api_base"] = api_base
@@ -137,13 +154,18 @@ def call_llm_stream(prompt: str, model_env: str = "LLM_MODEL", default_model: st
 
     kwargs["headers"] = {"Accept-Encoding": "identity"}
 
-    response = completion(**kwargs)
-    for chunk in response:
-        if hasattr(chunk, 'choices') and chunk.choices:
-            if hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta:
-                content = chunk.choices[0].delta.content or ""
-                if content:
-                    yield content
+    logger.info("Calling LLM stream: model=%s, prompt_len=%d, api_base=%s", model, len(prompt), api_base or "(default)")
+    try:
+        response = completion(**kwargs)
+        for chunk in response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                if hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta:
+                    content = chunk.choices[0].delta.content or ""
+                    if content:
+                        yield content
+    except Exception:
+        logger.exception("LLM stream failed: model=%s", model)
+        raise
 
 
 def read_file(path: Path) -> str:

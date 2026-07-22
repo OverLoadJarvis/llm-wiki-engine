@@ -275,6 +275,7 @@ body {
 /* ── Inputs ─────────────────────────────────────────────────── */
 input[type="text"],
 input[type="search"],
+input[type="password"],
 textarea,
 select {
   font-family: var(--font-sans);
@@ -291,6 +292,7 @@ select {
 
 input[type="text"]:focus,
 input[type="search"]:focus,
+input[type="password"]:focus,
 textarea:focus,
 select:focus {
   background: rgba(0, 122, 255, 0.04);
@@ -349,6 +351,7 @@ select {
 }
 
 .modal input[type="text"],
+.modal input[type="password"],
 .modal input[type="file"] {
   margin-bottom: 12px;
 }

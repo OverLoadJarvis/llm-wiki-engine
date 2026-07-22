@@ -57,3 +57,13 @@ CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
     INSERT INTO files_fts(rowid, relative_path, content_text)
     VALUES (new.id, new.relative_path, new.content_text);
 END;
+
+-- Global LLM settings (single row, id must be 1)
+CREATE TABLE IF NOT EXISTS llm_settings (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    base_url   TEXT NOT NULL DEFAULT '',
+    api_key    TEXT NOT NULL DEFAULT '',
+    model      TEXT NOT NULL DEFAULT '',
+    model_fast TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

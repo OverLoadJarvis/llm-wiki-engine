@@ -107,11 +107,76 @@
         </div>
       </div>
     </div>
+
+    <!-- LLM Settings Modal -->
+    <div v-if="active === 'llm-settings'" class="modal-overlay" @click.self="$emit('close')">
+      <div class="modal" style="width:520px;">
+        <h3>LLM Settings</h3>
+        <p class="modal-desc">
+          Global configuration for all knowledge bases. Saved values override environment variables.
+          Leave API Key blank to keep the existing key.
+        </p>
+        <div v-if="llmLoading" class="loading">
+          <div class="spinner"></div><span>Loading...</span>
+        </div>
+        <template v-else>
+          <div class="import-section">
+            <label>Base URL</label>
+            <input
+              type="text"
+              v-model="llmForm.base_url"
+              :placeholder="llmResolved.base_url || 'https://api.openai.com/v1'"
+            />
+          </div>
+          <div class="import-section">
+            <label>API Key</label>
+            <input
+              type="password"
+              v-model="llmForm.api_key"
+              :placeholder="llmApiKeyPlaceholder"
+              autocomplete="off"
+            />
+          </div>
+          <div class="import-section">
+            <label>Model (default)</label>
+            <input
+              type="text"
+              v-model="llmForm.model"
+              :placeholder="llmResolved.model || 'model name'"
+            />
+          </div>
+          <div class="import-section">
+            <label>Fast Model</label>
+            <input
+              type="text"
+              v-model="llmForm.model_fast"
+              :placeholder="llmResolved.model_fast || 'fast model name'"
+            />
+          </div>
+          <div v-if="llmTestMessage" class="llm-test-result" :class="llmTestOk ? 'ok' : 'err'">
+            {{ llmTestMessage }}
+          </div>
+          <div class="modal-actions llm-actions">
+            <button class="btn btn-outline" @click="doTestLlm('model')" :disabled="llmTesting">
+              {{ llmTesting === 'model' ? 'Testing...' : 'Test Model' }}
+            </button>
+            <button class="btn btn-outline" @click="doTestLlm('model_fast')" :disabled="llmTesting">
+              {{ llmTesting === 'model_fast' ? 'Testing...' : 'Test Fast' }}
+            </button>
+            <span class="llm-actions-spacer"></span>
+            <button class="btn btn-outline" @click="$emit('close')" :disabled="!!llmTesting || llmSaving">Cancel</button>
+            <button class="btn" @click="doSaveLlm" :disabled="!!llmTesting || llmSaving">
+              {{ llmSaving ? 'Saving...' : 'Save' }}
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
@@ -122,7 +187,10 @@ const props = defineProps({
   deleteApi: { type: Function, required: true },
   lintApi: { type: Function, required: true },
   instructionApi: { type: Function, required: true },
-  setInstructionApi: { type: Function, required: true }
+  setInstructionApi: { type: Function, required: true },
+  getLlmSettingsApi: { type: Function, required: true },
+  setLlmSettingsApi: { type: Function, required: true },
+  testLlmSettingsApi: { type: Function, required: true }
 })
 
 const emit = defineEmits(['close', 'kb-created', 'kb-deleted', 'import-stream'])
@@ -266,6 +334,136 @@ async function doSaveInstruction() {
     alert(`Save failed: ${err.message}`)
   }
 }
+
+// ── LLM Settings ──────────────────────────────────────────────
+const llmLoading = ref(false)
+const llmSaving = ref(false)
+const llmTesting = ref('')
+const llmApiKeySet = ref(false)
+const llmApiKeyMasked = ref('')
+const llmForm = ref({
+  base_url: '',
+  api_key: '',
+  model: '',
+  model_fast: ''
+})
+const llmResolved = ref({
+  base_url: '',
+  model: '',
+  model_fast: ''
+})
+const llmTestOk = ref(false)
+const llmTestMessage = ref('')
+
+const llmApiKeyPlaceholder = computed(() => {
+  if (llmApiKeySet.value && llmApiKeyMasked.value) {
+    return `Configured (${llmApiKeyMasked.value}), leave blank to keep`
+  }
+  if (llmApiKeySet.value) {
+    return 'Configured, leave blank to keep'
+  }
+  return 'API key'
+})
+
+watch(() => props.active, async (val) => {
+  if (val === 'llm-settings') {
+    llmLoading.value = true
+    llmTestMessage.value = ''
+    llmForm.value = { base_url: '', api_key: '', model: '', model_fast: '' }
+    try {
+      console.log('[LLMSettings] GET /settings/llm')
+      const data = await props.getLlmSettingsApi()
+      llmForm.value = {
+        base_url: data.base_url || '',
+        api_key: '',
+        model: data.model || '',
+        model_fast: data.model_fast || ''
+      }
+      llmApiKeySet.value = !!data.api_key_set
+      llmApiKeyMasked.value = data.api_key_masked || ''
+      llmResolved.value = {
+        base_url: data.resolved_base_url || '',
+        model: data.resolved_model || '',
+        model_fast: data.resolved_model_fast || ''
+      }
+      console.log('[LLMSettings] GET ok', {
+        api_key_set: llmApiKeySet.value,
+        model: llmForm.value.model,
+        model_fast: llmForm.value.model_fast
+      })
+    } catch (err) {
+      console.error('[LLMSettings] GET failed', err.message)
+      alert(`Load LLM settings failed: ${err.message}`)
+    } finally {
+      llmLoading.value = false
+    }
+  }
+})
+
+async function doSaveLlm() {
+  llmSaving.value = true
+  llmTestMessage.value = ''
+  try {
+    const body = {
+      base_url: llmForm.value.base_url.trim(),
+      model: llmForm.value.model.trim(),
+      model_fast: llmForm.value.model_fast.trim()
+    }
+    if (llmForm.value.api_key) {
+      body.api_key = llmForm.value.api_key
+    }
+    console.log('[LLMSettings] PUT /settings/llm', {
+      base_url: body.base_url,
+      model: body.model,
+      model_fast: body.model_fast,
+      api_key_provided: !!body.api_key
+    })
+    const data = await props.setLlmSettingsApi(body)
+    llmApiKeySet.value = !!data.api_key_set
+    llmApiKeyMasked.value = data.api_key_masked || ''
+    llmForm.value.api_key = ''
+    console.log('[LLMSettings] PUT ok')
+    emit('close')
+  } catch (err) {
+    console.error('[LLMSettings] PUT failed', err.message)
+    alert(`Save failed: ${err.message}`)
+  } finally {
+    llmSaving.value = false
+  }
+}
+
+async function doTestLlm(which) {
+  llmTesting.value = which
+  llmTestMessage.value = ''
+  try {
+    const body = {
+      base_url: llmForm.value.base_url.trim(),
+      model: llmForm.value.model.trim(),
+      model_fast: llmForm.value.model_fast.trim(),
+      which
+    }
+    if (llmForm.value.api_key) {
+      body.api_key = llmForm.value.api_key
+    }
+    console.log('[LLMSettings] POST /settings/llm/test', { which, model: which === 'model_fast' ? body.model_fast : body.model })
+    const result = await props.testLlmSettingsApi(body)
+    if (result.ok) {
+      llmTestOk.value = true
+      llmTestMessage.value = `OK — ${result.model} (${result.latency_ms} ms)`
+      console.log('[LLMSettings] test ok', result)
+    } else {
+      llmTestOk.value = false
+      llmTestMessage.value = result.error || 'Connection failed'
+      console.warn('[LLMSettings] test failed', result.error)
+    }
+  } catch (err) {
+    llmTestOk.value = false
+    llmTestMessage.value = err.message
+    console.error('[LLMSettings] test error', err.message)
+  } finally {
+    llmTesting.value = ''
+  }
+}
 </script>
 
 <style scoped>
@@ -369,5 +567,34 @@ async function doSaveInstruction() {
 
 .instruction-textarea:focus {
   border-color: var(--accent);
+}
+
+.llm-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.llm-actions-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.llm-test-result {
+  font-size: 0.8125rem;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.llm-test-result.ok {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.08);
+}
+
+.llm-test-result.err {
+  color: var(--danger);
+  background: rgba(255, 59, 48, 0.08);
 }
 </style>

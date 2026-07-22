@@ -237,6 +237,183 @@ def set_instruction(kb_id):
         db.close()
 
 
+# ── 全局 LLM 设置 API ─────────────────────────────────────────────────
+
+def _llm_settings_public(stored: dict) -> dict:
+    """Build API response without plaintext api_key."""
+    from tools.llm_config import get_resolved, mask_api_key
+
+    api_key = stored.get("api_key") or ""
+    resolved = get_resolved()
+    return {
+        "base_url": stored.get("base_url") or "",
+        "model": stored.get("model") or "",
+        "model_fast": stored.get("model_fast") or "",
+        "api_key_set": bool(api_key),
+        "api_key_masked": mask_api_key(api_key),
+        # Effective values after env fallback (for form placeholders / display)
+        "resolved_base_url": resolved["base_url"],
+        "resolved_model": resolved["model"],
+        "resolved_model_fast": resolved["model_fast"],
+    }
+
+
+@app.route("/api/settings/llm", methods=["GET"])
+def get_llm_settings():
+    """获取全局 LLM 配置（api_key 仅返回是否已设置与脱敏后缀）。
+
+    GET /api/settings/llm
+    """
+    from tools.llm_config import reload_from_storage
+
+    db = get_db()
+    try:
+        stored = db.get_llm_settings()
+        reload_from_storage(db)
+        logger.info(
+            "GET /api/settings/llm: api_key_set=%s, base_url=%s, model=%s",
+            bool(stored.get("api_key")),
+            stored.get("base_url") or "(empty)",
+            stored.get("model") or "(empty)",
+        )
+        return jsonify(_llm_settings_public(stored))
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/llm", methods=["PUT"])
+def put_llm_settings():
+    """更新全局 LLM 配置。api_key 省略或空字符串则保留原值。
+
+    PUT /api/settings/llm
+    请求体: {"base_url", "api_key?", "model", "model_fast"}
+    """
+    from tools.llm_config import reload_from_storage
+
+    data = request.get_json(silent=True) or {}
+    base_url = (data.get("base_url") or "").strip()
+    model = (data.get("model") or "").strip()
+    model_fast = (data.get("model_fast") or "").strip()
+    api_key_in = data.get("api_key")
+
+    db = get_db()
+    try:
+        existing = db.get_llm_settings()
+        if api_key_in is None or api_key_in == "":
+            api_key = existing.get("api_key") or ""
+        else:
+            api_key = str(api_key_in)
+
+        stored = db.set_llm_settings(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            model_fast=model_fast,
+        )
+        reload_from_storage(db)
+        logger.info(
+            "PUT /api/settings/llm ok: base_url=%s, model=%s, model_fast=%s, api_key_set=%s",
+            base_url or "(empty)",
+            model or "(empty)",
+            model_fast or "(empty)",
+            bool(api_key),
+        )
+        return jsonify(_llm_settings_public(stored))
+    except Exception:
+        logger.exception("PUT /api/settings/llm failed")
+        return jsonify({"error": "保存 LLM 设置失败"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/llm/test", methods=["POST"])
+def test_llm_settings():
+    """用表单当前值测试 LLM 连接（可未保存）。
+
+    POST /api/settings/llm/test
+    请求体: {"base_url", "api_key?", "model", "model_fast", "which": "model"|"model_fast"}
+    """
+    import time
+
+    from tools.llm_config import resolve_for_test
+
+    data = request.get_json(silent=True) or {}
+    which = data.get("which") or "model"
+    if which not in ("model", "model_fast"):
+        which = "model"
+
+    creds = resolve_for_test(
+        base_url=data.get("base_url"),
+        api_key=data.get("api_key"),
+        model=data.get("model"),
+        model_fast=data.get("model_fast"),
+        which=which,
+    )
+    model = creds["model"]
+    api_base = creds["base_url"]
+    api_key = creds["api_key"]
+
+    if not model:
+        return jsonify({"ok": False, "error": "未指定模型名称"})
+
+    logger.info(
+        "POST /api/settings/llm/test start: which=%s, model=%s, api_base=%s",
+        which,
+        model,
+        api_base or "(default)",
+    )
+
+    try:
+        from litellm import completion
+    except ImportError:
+        logger.error("litellm not installed")
+        return jsonify({"ok": False, "error": "litellm 未安装"})
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with OK"}],
+        "max_tokens": 8,
+        "extra_body": {"enable_thinking": False},
+        "headers": {"Accept-Encoding": "identity"},
+    }
+    if api_base:
+        kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    t0 = time.perf_counter()
+    try:
+        completion(**kwargs)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info(
+            "POST /api/settings/llm/test ok: model=%s, latency_ms=%d",
+            model,
+            latency_ms,
+        )
+        return jsonify({"ok": True, "latency_ms": latency_ms, "model": model})
+    except Exception as e:
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        err_msg = str(e)
+        logger.warning(
+            "POST /api/settings/llm/test failed: model=%s, latency_ms=%d, error=%s",
+            model,
+            latency_ms,
+            err_msg,
+        )
+        return jsonify({"ok": False, "error": err_msg, "model": model, "latency_ms": latency_ms})
+
+
+def _init_llm_config_cache() -> None:
+    """Load LLM settings from DB into process cache."""
+    from tools.llm_config import reload_from_storage
+
+    db = get_db()
+    try:
+        reload_from_storage(db)
+    finally:
+        db.close()
+
+
 # ── 文件树 API ────────────────────────────────────────────────────────
 
 @app.route("/api/kbs/<int:kb_id>/tree", methods=["GET"])
@@ -1854,6 +2031,7 @@ if __name__ == "__main__":
 
     logger.info("LLM Wiki Web API 启动中...")
     logger.info("数据库: %s", DB_PATH)
+    _init_llm_config_cache()
     logger.info("上传目录: %s", DEFAULT_UPLOAD_DIR)
     logger.info("访问地址: http://localhost:%d", api_port)
     if FRONTEND_DIST:

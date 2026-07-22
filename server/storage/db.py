@@ -71,9 +71,71 @@ class WikiStorage:
         if "ingest_instruction" not in cols:
             self.conn.execute("ALTER TABLE kbs ADD COLUMN ingest_instruction TEXT NOT NULL DEFAULT ''")
             self.conn.commit()
+        # 兼容旧库：schema.sql 中的 CREATE 对已有 DB 可能已执行；此处再保底一次
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_settings (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                base_url   TEXT NOT NULL DEFAULT '',
+                api_key    TEXT NOT NULL DEFAULT '',
+                model      TEXT NOT NULL DEFAULT '',
+                model_fast TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
+
+    # ── Global LLM settings ────────────────────────────────────────
+
+    def get_llm_settings(self) -> dict[str, Any]:
+        """Return stored LLM settings (empty strings if unset)."""
+        row = self.conn.execute(
+            "SELECT base_url, api_key, model, model_fast, updated_at FROM llm_settings WHERE id = 1"
+        ).fetchone()
+        if not row:
+            return {
+                "base_url": "",
+                "api_key": "",
+                "model": "",
+                "model_fast": "",
+                "updated_at": None,
+            }
+        return dict(row)
+
+    def set_llm_settings(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        model_fast: str,
+    ) -> dict[str, Any]:
+        """Upsert global LLM settings (single row id=1)."""
+        self.conn.execute(
+            """
+            INSERT INTO llm_settings (id, base_url, api_key, model, model_fast, updated_at)
+            VALUES (1, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
+                base_url = excluded.base_url,
+                api_key = excluded.api_key,
+                model = excluded.model,
+                model_fast = excluded.model_fast,
+                updated_at = datetime('now')
+            """,
+            (base_url or "", api_key or "", model or "", model_fast or ""),
+        )
+        self.conn.commit()
+        logger.info(
+            "LLM settings saved: base_url=%s, model=%s, model_fast=%s, api_key_set=%s",
+            base_url or "",
+            model or "",
+            model_fast or "",
+            bool(api_key),
+        )
+        return self.get_llm_settings()
 
     # ── KB CRUD ────────────────────────────────────────────────────
 
