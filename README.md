@@ -4,6 +4,10 @@
 
 > 本项目参考 [SamurAIGPT/llm-wiki-agent](https://github.com/SamurAIGPT/llm-wiki-agent) 的设计理念与架构，在其基础上进行了大量重构与增强，包括：SQLite 多项目存储、MCP Server 集成、Vue 3 现代化前端、多格式文档支持、图谱自愈等。
 
+## 主视图
+
+![LLM Wiki Engine 主视图](images/主视图.png)
+
 ## 特性
 
 - **多格式文档摄入**：支持 Markdown 直接读取，PDF/DOCX/PPTX/XLSX 等 20+ 格式通过 markitdown 自动转换
