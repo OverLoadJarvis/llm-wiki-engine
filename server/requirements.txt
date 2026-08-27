@@ -78,12 +78,12 @@ pydub==0.25.1
 pygments==2.20.0
 pyjwt==2.13.0
 pypdfium2==5.9.0
-pyreadline3==3.5.6
+pyreadline3==3.5.6; sys_platform == 'win32'
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.32
 python-pptx==1.0.2
-pywin32==312
+pywin32==312; sys_platform == 'win32'
 pyyaml==6.0.3
 referencing==0.37.0
 regex==2026.5.9

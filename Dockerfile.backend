@@ -14,9 +14,9 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY server/requirements-docker.txt .
+COPY server/requirements.txt .
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip install --no-cache-dir -r requirements-docker.txt
+    pip install --no-cache-dir -r requirements.txt
 
 COPY server/ ./server/
 

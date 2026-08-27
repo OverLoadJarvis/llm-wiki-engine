@@ -153,19 +153,27 @@
               :placeholder="llmResolved.model_fast || 'fast model name'"
             />
           </div>
-          <div v-if="llmTestMessage" class="llm-test-result" :class="llmTestOk ? 'ok' : 'err'">
+          <div
+            v-if="llmTestMessage || llmTesting"
+            class="llm-test-result"
+            :class="{
+              ok: llmTestOk && !llmTesting,
+              err: !llmTestOk && !llmTesting,
+              pending: !!llmTesting
+            }"
+          >
             {{ llmTestMessage }}
           </div>
           <div class="modal-actions llm-actions">
-            <button class="btn btn-outline" @click="doTestLlm('model')" :disabled="llmTesting">
+            <button type="button" class="btn btn-outline" @click="doTestLlm('model')" :disabled="!!llmTesting">
               {{ llmTesting === 'model' ? 'Testing...' : 'Test Model' }}
             </button>
-            <button class="btn btn-outline" @click="doTestLlm('model_fast')" :disabled="llmTesting">
+            <button type="button" class="btn btn-outline" @click="doTestLlm('model_fast')" :disabled="!!llmTesting">
               {{ llmTesting === 'model_fast' ? 'Testing...' : 'Test Fast' }}
             </button>
             <span class="llm-actions-spacer"></span>
-            <button class="btn btn-outline" @click="$emit('close')" :disabled="!!llmTesting || llmSaving">Cancel</button>
-            <button class="btn" @click="doSaveLlm" :disabled="!!llmTesting || llmSaving">
+            <button type="button" class="btn btn-outline" @click="$emit('close')" :disabled="!!llmTesting || llmSaving">Cancel</button>
+            <button type="button" class="btn" @click="doSaveLlm" :disabled="!!llmTesting || llmSaving">
               {{ llmSaving ? 'Saving...' : 'Save' }}
             </button>
           </div>
@@ -434,7 +442,10 @@ async function doSaveLlm() {
 
 async function doTestLlm(which) {
   llmTesting.value = which
-  llmTestMessage.value = ''
+  llmTestOk.value = false
+  llmTestMessage.value = which === 'model_fast'
+    ? 'Testing fast model connection...'
+    : 'Testing model connection...'
   try {
     const body = {
       base_url: llmForm.value.base_url.trim(),
@@ -449,16 +460,16 @@ async function doTestLlm(which) {
     const result = await props.testLlmSettingsApi(body)
     if (result.ok) {
       llmTestOk.value = true
-      llmTestMessage.value = `OK — ${result.model} (${result.latency_ms} ms)`
+      llmTestMessage.value = `Connection successful — ${result.model} (${result.latency_ms} ms)`
       console.log('[LLMSettings] test ok', result)
     } else {
       llmTestOk.value = false
-      llmTestMessage.value = result.error || 'Connection failed'
+      llmTestMessage.value = `Connection failed: ${result.error || 'Unknown error'}`
       console.warn('[LLMSettings] test failed', result.error)
     }
   } catch (err) {
     llmTestOk.value = false
-    llmTestMessage.value = err.message
+    llmTestMessage.value = `Connection failed: ${err.message}`
     console.error('[LLMSettings] test error', err.message)
   } finally {
     llmTesting.value = ''
@@ -586,6 +597,11 @@ async function doTestLlm(which) {
   border-radius: var(--radius-sm);
   line-height: 1.5;
   word-break: break-word;
+}
+
+.llm-test-result.pending {
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .llm-test-result.ok {

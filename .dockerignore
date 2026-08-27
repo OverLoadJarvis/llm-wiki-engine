@@ -12,6 +12,8 @@ openspec/
 .git/
 .gitignore
 *.db
+**/*.db
+server/storage/*.db
 logs/
 *.log
 .DS_Store
