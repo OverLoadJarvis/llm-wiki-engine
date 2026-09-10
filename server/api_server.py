@@ -21,6 +21,7 @@ import requests
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from flask_cors import CORS
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 REPO_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = REPO_ROOT.parent
@@ -1446,7 +1447,66 @@ def external_upload():
 
 MCP_PORT = int(os.environ.get("MCP_PORT", "8081"))
 
-mcp = FastMCP("llm-wiki-engine")
+
+def _build_mcp_transport_security() -> TransportSecuritySettings:
+    """构建 MCP Host 白名单，避免局域网/Docker 跨容器访问被 DNS 重绑定防护拦截（421）。
+
+    FastMCP 默认只允许 127.0.0.1/localhost；跨容器常用宿主机 IP、
+    host.docker.internal 或 compose 服务名访问，需额外放行。
+    """
+    enable = os.environ.get("MCP_DNS_REBINDING_PROTECTION", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    allowed_hosts = [
+        "127.0.0.1:*",
+        "localhost:*",
+        "[::1]:*",
+        "host.docker.internal:*",
+    ]
+    # 逗号分隔：IP、主机名，或带端口 / 通配端口（如 192.168.7.203、backend:8081、backend:*）
+    extra = os.environ.get("MCP_ALLOWED_HOSTS", "").strip()
+    for item in extra.split(","):
+        host = item.strip()
+        if not host:
+            continue
+        if ":" not in host:
+            host = f"{host}:*"
+        if host not in allowed_hosts:
+            allowed_hosts.append(host)
+
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+        "http://host.docker.internal:*",
+    ]
+    for host in allowed_hosts:
+        base = host[:-2] if host.endswith(":*") else host.rsplit(":", 1)[0]
+        if base.startswith("[") or base in ("127.0.0.1", "localhost", "::1"):
+            continue
+        for scheme_origin in (f"http://{base}:*", f"https://{base}:*"):
+            if scheme_origin not in allowed_origins:
+                allowed_origins.append(scheme_origin)
+
+    logger.info(
+        "MCP transport security: dns_rebinding=%s allowed_hosts=%s",
+        enable,
+        allowed_hosts,
+    )
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=enable,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
+
+mcp = FastMCP(
+    "llm-wiki-engine",
+    transport_security=_build_mcp_transport_security(),
+)
 
 
 def _mcp_engine():

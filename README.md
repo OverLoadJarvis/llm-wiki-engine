@@ -168,9 +168,15 @@ llm-wiki-engine/
 │   ├── package.json
 │   ├── vite.config.js
 │   └── package-lock.json
+├── skills/                          # Agent / 运维 Skill 工具包
+│   └── llm-wiki-upload/             # 本机文件 multipart 上传（替代 MCP base64）
+│       ├── SKILL.md                 # Skill 说明（中文）
+│       ├── reference.md             # API 细节
+│       └── scripts/
+│           └── upload.py            # 上传脚本（仅标准库）
 ├── .dockerignore
 ├── .gitignore
-├── AGENTS.md                        # CodeGraph 使用指引
+├── AGENTS.md                        # Agent / 项目指引
 ├── Dockerfile                       # 多阶段 Docker 构建（前端 + 后端）
 ├── LICENSE
 └── README.md
@@ -379,6 +385,8 @@ python api_server.py
 |------|--------|------|
 | `MCP_PORT` | `8081` | MCP Streamable HTTP 服务端口 |
 | `API_PORT` | `5000` | Flask API 服务端口 |
+| `MCP_ALLOWED_HOSTS` | （空） | 额外允许的 Host（逗号分隔）。跨 Docker/局域网访问必填，否则返回 `421 Invalid Host header` |
+| `MCP_DNS_REBINDING_PROTECTION` | `1` | 设为 `0` 可关闭 Host 校验（仅可信内网） |
 
 在 `server/.env` 中配置：
 
@@ -386,6 +394,8 @@ python api_server.py
 # 服务端口
 API_PORT=5000
 MCP_PORT=8081
+# Docker 跨容器 / 局域网访问示例：
+# MCP_ALLOWED_HOSTS=192.168.7.203,host.docker.internal,backend
 ```
 
 ### AI 客户端配置
@@ -416,6 +426,21 @@ MCP_PORT=8081
 }
 ```
 
+**QwenPaw（与 llm-wiki 同宿主机、不同 Docker 容器）**：容器内 `localhost` 指向自身，需用宿主机网关或发布端口可达地址，并在服务端配置 `MCP_ALLOWED_HOSTS`：
+
+```json
+{
+  "mcpServers": {
+    "llm-wiki-engine": {
+      "transport": "streamable_http",
+      "url": "http://host.docker.internal:8081/mcp"
+    }
+  }
+}
+```
+
+也可用宿主机局域网 IP（如 `http://192.168.7.203:8081/mcp`），但服务端 `.env` 必须包含该 Host：`MCP_ALLOWED_HOSTS=192.168.7.203`。保存后在 QwenPaw MCP 列表中启用客户端，必要时 `/daemon restart`。
+
 **通用 Streamable HTTP MCP 客户端**：端点地址为 `http://<host>:<MCP_PORT>/mcp`。
 
 ### MCP 工具列表
@@ -438,12 +463,50 @@ MCP_PORT=8081
 AI 客户端通过 MCP 可实现端到端知识库管理：
 
 1. `create_kb` 创建空知识库
-2. `upload_files` 追加文档文件（可多次调用）
+2. **上传文档**：跨 Docker / 本机文件请优先用 [Skill：本地文件上传](#skill本地文件上传llm-wiki-upload)，避免 MCP `content_base64`；仅当文件已在 MCP 服务端磁盘时才用 `upload_files` + `file_path`
 3. `build_knowledge` 构建知识库（可传入 `instruction` 定制编译行为）
 4. `query_knowledge` 对知识库提问
 5. `read_wiki_file` 读取具体 Wiki 页面内容
 6. `export_kb` 导出知识库（便于迁移/备份）
 7. `delete_kb` 清理不需要的知识库
+
+---
+
+## Skill：本地文件上传（llm-wiki-upload）
+
+目录：[`skills/llm-wiki-upload/`](skills/llm-wiki-upload/)
+
+### 解决什么问题
+
+MCP Streamable HTTP 的 `upload_files` 在跨容器场景下不方便：
+
+| 方式 | 问题 |
+|------|------|
+| `file_path` | 读的是 **MCP 服务端**路径，不是 Agent / QwenPaw 本机路径 |
+| `content_base64` | 体积膨胀约 33%、中文易乱码、大文件不现实 |
+
+本 Skill 在 **能读本地文件的一侧** 调用 REST `multipart/form-data` 二进制上传，无 Base64。列表 / 查询 / 构建仍用 MCP；日常加文档也可继续用 Web 前端上传。
+
+### 用法
+
+```bash
+# 环境变量（可选），默认 http://127.0.0.1:5000
+# 跨 Docker 示例：export LLM_WIKI_API=http://host.docker.internal:5000
+
+# 列出知识库
+python skills/llm-wiki-upload/scripts/upload.py --list-kbs
+
+# 按知识库 ID 上传
+python skills/llm-wiki-upload/scripts/upload.py --kb-id 1 --file /path/to/doc.md
+
+# 多文件；加 --update 时仅在最后一次上传后做增量更新
+python skills/llm-wiki-upload/scripts/upload.py --kb-id 1 --file a.pdf --file b.docx --update
+
+# 按名称上传（知识库不存在则创建）
+python skills/llm-wiki-upload/scripts/upload.py --kb-name wiki --file /path/to/doc.md
+```
+
+说明文档：[`skills/llm-wiki-upload/SKILL.md`](skills/llm-wiki-upload/SKILL.md)；接口细节：[`skills/llm-wiki-upload/reference.md`](skills/llm-wiki-upload/reference.md)。
 
 ---
 
