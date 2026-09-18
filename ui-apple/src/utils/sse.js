@@ -1,8 +1,9 @@
 /**
- * 消费 SSE (Server-Sent Events) 响应流。
- * @param {string} url - 请求 URL
- * @param {RequestInit} options - fetch 选项
- * @param {(event: object) => void} [onEvent] - 每个 SSE 事件的回调
+ * 消费标准 SSE（event: + data:）响应流。
+ * 回调收到的对象会带上 event 字段，兼容原 handleTaskEvent。
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @param {(event: object) => void} [onEvent]
  * @returns {Promise<any>} done 事件中的 result，或 null
  */
 export async function consumeSSE(url, options = {}, onEvent) {
@@ -18,22 +19,34 @@ export async function consumeSSE(url, options = {}, onEvent) {
   const decoder = new TextDecoder()
   let buffer = ''
   let finalResult = null
+  let currentEvent = 'message'
 
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
+    const parts = buffer.split('\n')
+    buffer = parts.pop() || ''
+    for (const rawLine of parts) {
+      const line = rawLine.replace(/\r$/, '')
+      if (!line) {
+        currentEvent = 'message'
+        continue
+      }
+      if (line.startsWith('event:')) {
+        currentEvent = line.slice(6).trim() || 'message'
+        continue
+      }
+      if (!line.startsWith('data:')) continue
+      const dataStr = line.slice(5).trim()
       try {
-        const data = JSON.parse(line.slice(6))
-        if (data.event === 'error') {
-          throw new Error(data.message || 'Stream error')
+        const payload = dataStr ? JSON.parse(dataStr) : {}
+        const data = { event: currentEvent, ...payload }
+        if (currentEvent === 'error') {
+          throw new Error(data.message || data.error || 'Stream error')
         }
-        if (data.event === 'done') {
+        if (currentEvent === 'done') {
           finalResult = data.result ?? finalResult
         }
         if (onEvent) onEvent(data)
@@ -50,10 +63,6 @@ export async function consumeSSE(url, options = {}, onEvent) {
 
 /**
  * 消费 multipart 上传的 SSE 响应流。
- * @param {string} url - 请求 URL（可含 ?stream=true）
- * @param {FormData} formData - 表单数据
- * @param {(event: object) => void} [onEvent] - 每个 SSE 事件的回调
- * @returns {Promise<any>} done 事件中的 result
  */
 export async function consumeSSEUpload(url, formData, onEvent) {
   console.log('[sse] POST upload', url)

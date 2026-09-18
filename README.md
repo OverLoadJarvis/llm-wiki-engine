@@ -16,7 +16,7 @@
 - **自然语言查询**：对知识库进行自然语言提问，LLM 综合多页面生成带引用的答案（支持流式输出）
 - **图谱自愈**：自动检测缺失的实体页面并生成定义，修复断裂链接
 - **健康检查**：结构检查（零 LLM 调用）+ 内容质量检查（LLM 语义分析）
-- **REST API**：完整的 Flask 后端服务，支持前端 Web 界面与外部系统集成
+- **REST API**：完整的 FastAPI 后端服务，支持前端 Web 界面与外部系统集成
 - **MCP Server**：内置 Model Context Protocol 服务，AI 客户端可直接操作知识库
 - **多知识库管理**：基于 SQLite 的多知识库隔离存储，支持 FTS5 全文搜索
 - **Vue 3 前端**：现代化 Web UI（ui-apple），支持知识库管理、文件浏览、知识图谱可视化与对话式查询
@@ -68,21 +68,11 @@ cd server
 python api_server.py
 ```
 
-5. 构建并访问 Web UI（生产/一体化模式）：
-
-```bash
-cd ui-apple
-npm install
-npm run build
-```
-
-然后访问 `http://localhost:5000` 进入 Web UI。
-
-> 若未执行 `npm run build`，`http://localhost:5000` 仅提供 API。开发时请使用下方「前端开发」模式。
+5. **推荐部署**：用 Docker Compose（对外仅 `:5173`，见下方「Docker 部署」）。
 
 ### 前端开发（可选）
 
-前端为 Vue 3 + Vite 项目，位于 `ui-apple/` 目录。开发时需**同时**启动后端与 Vite：
+前端为 Vue 3 + Vite 项目，位于 `ui-apple/` 目录。本地开发时需**同时**启动后端与 Vite：
 
 ```bash
 # 终端 1：后端
@@ -92,15 +82,10 @@ python api_server.py
 # 终端 2：前端
 cd ui-apple
 npm install
-npm run dev      # 开发模式，默认 http://localhost:5173（API 通过代理转发到 5000）
+npm run dev      # http://localhost:5173（API 经 Vite 代理到 :5000）
 ```
 
-```bash
-cd ui-apple
-npm run build    # 生产构建，输出到 ui-apple/dist/（也可被 Flask 自动托管）
-```
-
-Docker 部署时会自动构建前端并内嵌到 Flask 服务中。
+可选：`cd ui-apple && npm run build` 后，也可由 FastAPI 在 `:5000` 托管静态页（仅本地调试用；正式部署请用 Compose）。
 
 ---
 
@@ -141,7 +126,9 @@ llm-wiki-engine/
 │   │   ├── automated-sync.md
 │   │   └── automated-sync_zh.md
 │   ├── .env.example                 # 环境变量示例
-│   ├── api_server.py                # Flask REST API 后端 + MCP Server 入口
+│   ├── api_server.py                # 兼容启动入口（uvicorn app.main:app）
+│   ├── app/                         # FastAPI 应用（routers / MCP / SSE）
+│   ├── tests/                       # API 冒烟测试
 │   ├── requirements.txt             # Python 依赖
 │   ├── pyproject.toml               # 项目配置（PEP 621）
 │   ├── FORMATS.md                   # Wiki 页面格式规范
@@ -168,16 +155,17 @@ llm-wiki-engine/
 │   ├── package.json
 │   ├── vite.config.js
 │   └── package-lock.json
-├── skills/                          # Agent / 运维 Skill 工具包
-│   └── llm-wiki-upload/             # 本机文件 multipart 上传（替代 MCP base64）
-│       ├── SKILL.md                 # Skill 说明（中文）
-│       ├── reference.md             # API 细节
-│       └── scripts/
-│           └── upload.py            # 上传脚本（仅标准库）
+├── skills/                          # 本地 Agent 调试 Skill（REST）
+│   └── llm-wiki/                    # CRUD / 上传 / 构建 / 查询 / 导入导出
+│       ├── SKILL.md
+│       ├── reference.md
+│       └── scripts/wiki.py
+├── inbox/                           # Compose↔MCP 共享投递（宿主机 ↔ /data/inbox）
 ├── .dockerignore
 ├── .gitignore
 ├── AGENTS.md                        # Agent / 项目指引
-├── Dockerfile                       # 多阶段 Docker 构建（前端 + 后端）
+├── Dockerfile.backend               # Compose 后端镜像
+├── docker-compose.yml               # 官方部署：frontend + backend
 ├── LICENSE
 └── README.md
 ```
@@ -250,7 +238,7 @@ llm-wiki-engine/
 
 ## REST API 接口
 
-启动服务：`cd server && python api_server.py`，访问 `http://localhost:5000`
+启动服务：`cd server && python api_server.py`（或 `uvicorn app.main:app --port 5000`），访问 `http://localhost:5000`（文档 `/docs`）
 
 ### 知识库 API
 
@@ -368,24 +356,34 @@ LLM Wiki Engine 内置了 MCP (Model Context Protocol) Server，以 Streamable H
 
 ### 启动方式
 
-MCP Server 随 API 服务一同启动（`python api_server.py`），默认监听 `8081` 端口。仅在非 debug 模式下自动启动，debug 模式下禁用（避免 Flask reloader 端口冲突）。
+MCP Server 随 API 服务一同启动（`python api_server.py` 或 `uvicorn app.main:app`），进程内默认监听 `8081`。仅在非 debug 模式下自动启动（`DEBUG=1` 时禁用）。
 
 ```bash
-# 启动 API + MCP 服务
+# 本地开发：启动 API + MCP
 cd server
 python api_server.py
 
-# 启动日志输出：
+# 日志：
 #   MCP 服务: http://localhost:8081/mcp
+```
+
+**Docker Compose（推荐）**：宿主机只暴露前端 `5173`，nginx 统一反代 `/api` → backend:5000、`/mcp` → backend:8081。backend 端口不映射到宿主机。
+
+```bash
+docker compose up -d --build
+# Web:  http://localhost:5173
+# API:  http://localhost:5173/api/...
+# MCP:  http://localhost:5173/mcp
 ```
 
 ### 环境变量
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MCP_PORT` | `8081` | MCP Streamable HTTP 服务端口 |
-| `API_PORT` | `5000` | Flask API 服务端口 |
-| `MCP_ALLOWED_HOSTS` | （空） | 额外允许的 Host（逗号分隔）。跨 Docker/局域网访问必填，否则返回 `421 Invalid Host header` |
+| `MCP_PORT` | `8081` | 容器/进程内 MCP 端口（compose 下不必对外映射） |
+| `API_PORT` | `5000` | FastAPI (uvicorn) 服务端口 |
+| `CORS_ORIGINS` | `*` | 逗号分隔；空则允许全部来源 |
+| `MCP_ALLOWED_HOSTS` | （空） | 直连 MCP 端口时的额外 Host 白名单。经 compose 前端反代时 nginx 会改写 Host，一般无需配置 |
 | `MCP_DNS_REBINDING_PROTECTION` | `1` | 设为 `0` 可关闭 Host 校验（仅可信内网） |
 
 在 `server/.env` 中配置：
@@ -394,54 +392,41 @@ python api_server.py
 # 服务端口
 API_PORT=5000
 MCP_PORT=8081
-# Docker 跨容器 / 局域网访问示例：
-# MCP_ALLOWED_HOSTS=192.168.7.203,host.docker.internal,backend
+# 仅在「直连 :8081」且 Host 非 localhost 时需要：
+# MCP_ALLOWED_HOSTS=192.168.7.203,host.docker.internal
 ```
 
 ### AI 客户端配置
 
-**Claude Code / Claude 桌面端** (`claude_desktop_config.json`)：
-
-```json
-{
-  "mcpServers": {
-    "llm-wiki-engine": {
-      "type": "url",
-      "url": "http://localhost:8081/mcp"
-    }
-  }
-}
-```
-
-**Trae IDE** (`.trae/mcp.json`)：
-
-```json
-{
-  "mcpServers": {
-    "llm-wiki-engine": {
-      "type": "url",
-      "url": "http://localhost:8081/mcp"
-    }
-  }
-}
-```
-
-**QwenPaw（与 llm-wiki 同宿主机、不同 Docker 容器）**：容器内 `localhost` 指向自身，需用宿主机网关或发布端口可达地址，并在服务端配置 `MCP_ALLOWED_HOSTS`：
+**Docker Compose 统一入口（推荐）**：
 
 ```json
 {
   "mcpServers": {
     "llm-wiki-engine": {
       "transport": "streamable_http",
-      "url": "http://host.docker.internal:8081/mcp"
+      "url": "http://localhost:5173/mcp"
     }
   }
 }
 ```
 
-也可用宿主机局域网 IP（如 `http://192.168.7.203:8081/mcp`），但服务端 `.env` 必须包含该 Host：`MCP_ALLOWED_HOSTS=192.168.7.203`。保存后在 QwenPaw MCP 列表中启用客户端，必要时 `/daemon restart`。
+同宿主机其他容器（如 QwenPaw）可用：`http://host.docker.internal:5173/mcp`。
 
-**通用 Streamable HTTP MCP 客户端**：端点地址为 `http://<host>:<MCP_PORT>/mcp`。
+**本地直接跑后端**（未走 compose 前端）时仍用：
+
+```json
+{
+  "mcpServers": {
+    "llm-wiki-engine": {
+      "type": "url",
+      "url": "http://localhost:8081/mcp"
+    }
+  }
+}
+```
+
+**通用 Streamable HTTP MCP 客户端**：Compose 下为 `http://<host>:5173/mcp`；直连后端为 `http://<host>:8081/mcp`。
 
 ### MCP 工具列表
 
@@ -449,11 +434,11 @@ MCP_PORT=8081
 |---------|------|---------|
 | `list_kbs` | 列出所有知识库及状态 | — |
 | `create_kb` | 创建空知识库 | `name`, `description` |
-| `import_kb` | 从 ZIP 创建知识库并导入 | `zip_url` / `content_base64` / `file_path`, `kb_name` |
+| `import_kb` | 从 ZIP 创建知识库并导入 | `zip_url` / `file_path`, `kb_name` |
 | `export_kb` | 导出知识库为 Base64 ZIP | `kb_id` |
 | `delete_kb` | 删除知识库（不可逆） | `kb_id`, `confirm=true` |
 | `build_knowledge` | 构建/增量更新知识库 | `kb_id`, `instruction`, `incremental` |
-| `upload_files` | 向已有知识库追加文件 | `kb_id`, `file_path` / `content_base64` + `file_name`, `auto_update` |
+| `upload_files` | 追加服务端可读文件（Compose 推荐 `/data/inbox/...`） | `kb_id`, `file_path`, `auto_update` |
 | `query_knowledge` | 自然语言查询知识库 | `kb_id`, `question` |
 | `search_files` | 全文搜索 | `kb_id`, `keyword` |
 | `read_wiki_file` | 读取知识库中指定文件内容 | `kb_id`, `relative_path` |
@@ -463,7 +448,7 @@ MCP_PORT=8081
 AI 客户端通过 MCP 可实现端到端知识库管理：
 
 1. `create_kb` 创建空知识库
-2. **上传文档**：跨 Docker / 本机文件请优先用 [Skill：本地文件上传](#skill本地文件上传llm-wiki-upload)，避免 MCP `content_base64`；仅当文件已在 MCP 服务端磁盘时才用 `upload_files` + `file_path`
+2. **上传文档**：文件对 wiki 进程可读时用 `upload_files` + `file_path`（Compose 推荐 `/data/inbox/...`）；本机 REST 可用 [Skill：llm-wiki](#skillllm-wiki)
 3. `build_knowledge` 构建知识库（可传入 `instruction` 定制编译行为）
 4. `query_knowledge` 对知识库提问
 5. `read_wiki_file` 读取具体 Wiki 页面内容
@@ -472,41 +457,23 @@ AI 客户端通过 MCP 可实现端到端知识库管理：
 
 ---
 
-## Skill：本地文件上传（llm-wiki-upload）
+## Skill：llm-wiki
 
-目录：[`skills/llm-wiki-upload/`](skills/llm-wiki-upload/)
+目录：[`skills/llm-wiki/`](skills/llm-wiki/)
 
-### 解决什么问题
-
-MCP Streamable HTTP 的 `upload_files` 在跨容器场景下不方便：
-
-| 方式 | 问题 |
-|------|------|
-| `file_path` | 读的是 **MCP 服务端**路径，不是 Agent / QwenPaw 本机路径 |
-| `content_base64` | 体积膨胀约 33%、中文易乱码、大文件不现实 |
-
-本 Skill 在 **能读本地文件的一侧** 调用 REST `multipart/form-data` 二进制上传，无 Base64。列表 / 查询 / 构建仍用 MCP；日常加文档也可继续用 Web 前端上传。
-
-### 用法
+通过 REST 对接知识库（CRUD、上传、构建、查询、导入导出等）。入口：
 
 ```bash
-# 环境变量（可选），默认 http://127.0.0.1:5000
-# 跨 Docker 示例：export LLM_WIKI_API=http://host.docker.internal:5000
+# 默认 http://127.0.0.1:5000；Compose 可设 LLM_WIKI_API=http://127.0.0.1:5173
 
-# 列出知识库
-python skills/llm-wiki-upload/scripts/upload.py --list-kbs
-
-# 按知识库 ID 上传
-python skills/llm-wiki-upload/scripts/upload.py --kb-id 1 --file /path/to/doc.md
-
-# 多文件；加 --update 时仅在最后一次上传后做增量更新
-python skills/llm-wiki-upload/scripts/upload.py --kb-id 1 --file a.pdf --file b.docx --update
-
-# 按名称上传（知识库不存在则创建）
-python skills/llm-wiki-upload/scripts/upload.py --kb-name wiki --file /path/to/doc.md
+python skills/llm-wiki/scripts/wiki.py kbs list
+python skills/llm-wiki/scripts/wiki.py upload --kb-id 1 --file /path/to/doc.md --update
+python skills/llm-wiki/scripts/wiki.py build --kb-id 1
+python skills/llm-wiki/scripts/wiki.py query --kb-id 1 --question "核心概念是什么？"
+python skills/llm-wiki/scripts/wiki.py export --kb-id 1 --out ./kb.zip
 ```
 
-说明文档：[`skills/llm-wiki-upload/SKILL.md`](skills/llm-wiki-upload/SKILL.md)；接口细节：[`skills/llm-wiki-upload/reference.md`](skills/llm-wiki-upload/reference.md)。
+说明：[`skills/llm-wiki/SKILL.md`](skills/llm-wiki/SKILL.md)；接口对照：[`skills/llm-wiki/reference.md`](skills/llm-wiki/reference.md)。
 
 ---
 
@@ -529,47 +496,41 @@ npm run dev       # 开发服务器 http://localhost:5173
 npm run build     # 生产构建
 ```
 
-Docker 部署时，前端构建产物自动内嵌到 Flask 静态服务中。
-
 ---
 
-## Docker 部署
+## Docker 部署（官方唯一路径）
 
-### 构建镜像
+**只用 Docker Compose 双容器**，不要使用已移除的根目录一体机 `Dockerfile`。
+
+| 服务 | 镜像构建 | 对外 |
+|------|----------|------|
+| `frontend` | `ui-apple/Dockerfile`（nginx + 静态资源） | **仅** `5173→80` |
+| `backend` | `Dockerfile.backend`（FastAPI + MCP） | 不映射；仅容器网内 `5000` / `8081` |
+
+统一入口：
+
+| 用途 | URL |
+|------|-----|
+| Web UI | `http://localhost:5173` |
+| REST API | `http://localhost:5173/api/...` |
+| MCP | `http://localhost:5173/mcp` |
+
+### 启动
+
+先配置 `server/.env`（至少 `OPENAI_API_KEY` / `OPENAI_API_BASE` / `LLM_MODEL` 等），然后：
 
 ```bash
-docker build -t llm-wiki .
+docker compose up -d --build
 ```
 
-构建过程：
-1. **Stage 1**：使用 Node.js 构建 ui-apple 前端
-2. **Stage 2**：基于 Python 3.13-slim，安装后端依赖并复制前端构建产物
+数据卷：`wiki-storage`、`wiki-uploads`；另将宿主机 `./inbox` 挂到容器 `/data/inbox`，供 Agent 与 MCP `upload_files` 共享投递。
 
-### 运行容器
+常用命令：
 
 ```bash
-docker run -d -p 5000:5000 -p 8081:8081 \
-  -e LLM_MODEL=deepseek-v4-flash \
-  -e LLM_MODEL_FAST=deepseek-v4-flash \
-  -e OPENAI_API_KEY=your-api-key \
-  -e OPENAI_API_BASE=https://api.deepseek.com/v1 \
-  -e MCP_PORT=8081 \
-  --name llm-wiki \
-  llm-wiki
-```
-
-### 挂载持久化数据
-
-```bash
-docker run -d -p 5000:5000 -p 8081:8081 \
-  -v $(pwd)/server/storage:/app/server/storage \
-  -v $(pwd)/server/uploads:/app/server/uploads \
-  -e LLM_MODEL=deepseek-v4-flash \
-  -e OPENAI_API_KEY=your-api-key \
-  -e OPENAI_API_BASE=https://api.deepseek.com/v1 \
-  -e MCP_PORT=8081 \
-  --name llm-wiki \
-  llm-wiki
+docker compose logs -f backend
+docker compose ps
+docker compose down          # 停容器，保留卷
 ```
 
 ---
@@ -579,7 +540,7 @@ docker run -d -p 5000:5000 -p 8081:8081 \
 | 层级 | 技术 |
 |------|------|
 | **后端语言** | Python 3.10+ |
-| **Web 框架** | Flask + Flask-CORS |
+| **Web 框架** | FastAPI + uvicorn |
 | **MCP 协议** | FastMCP（Streamable HTTP） |
 | **数据存储** | SQLite（FTS5 全文搜索、WAL 模式） |
 | **LLM 调用** | litellm（兼容 OpenAI 接口的任意 LLM 服务） |
@@ -587,7 +548,7 @@ docker run -d -p 5000:5000 -p 8081:8081 \
 | **前端框架** | Vue 3 + Vite |
 | **图谱可视化** | vis-network（力导向图） |
 | **包管理** | uv（Python）/ npm（前端） |
-| **容器化** | Docker（多阶段构建） |
+| **容器化** | Docker Compose（frontend nginx + backend） |
 
 ---
 
@@ -602,7 +563,7 @@ docker run -d -p 5000:5000 -p 8081:8081 \
 - **图谱自愈**：新增自动检测并补全缺失实体页面的能力
 - **多格式文档支持**：集成 markitdown，支持 20+ 文档格式自动转换
 - **流式查询**：支持 SSE 流式输出查询结果
-- **Docker 部署**：提供多阶段 Docker 构建，前后端一体化部署
+- **Docker 部署**：Compose 双容器，对外仅 `:5173`，nginx 反代 `/api` 与 `/mcp`
 
 ## 许可证
 

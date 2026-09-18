@@ -7,12 +7,15 @@ services:
     environment:
       API_PORT: "5000"
       MCP_PORT: "8081"
-    ports:
-      - "5000:5000"
-      - "8081:8081"
+    # 不对外映射端口：API / MCP 仅经 frontend nginx 统一入口访问
+    expose:
+      - "5000"
+      - "8081"
     volumes:
       - wiki-storage:/app/server/storage
       - wiki-uploads:/app/server/uploads
+      # Agent 与 MCP 共享投递目录：宿主机 ./inbox ↔ 容器 /data/inbox
+      - ./inbox:/data/inbox
     restart: unless-stopped
 
   frontend:

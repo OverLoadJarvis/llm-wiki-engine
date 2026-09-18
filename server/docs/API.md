@@ -574,14 +574,14 @@ def create_kb(name: str = "Untitled", description: str = "") -> dict:
 | 属性 | 值 |
 |------|-----|
 | **工具名** | `import_kb` |
-| **说明** | 从 ZIP 压缩包创建知识库并导入所有文件。支持三种输入方式：`zip_url`（远程 URL）、`content_base64`（Base64 编码）、`file_path`（本地路径）。ZIP 顶层需包含 `raw/`、`wiki/`、`graph/` 中至少一个目录 |
-| **参数** | `zip_url` (str, 可选) — 远程 ZIP 文件 URL（优先使用）<br>`content_base64` (str, 可选) — ZIP 文件的 Base64 编码内容<br>`file_path` (str, 可选) — 本地 ZIP 文件绝对路径<br>`kb_name` (str, 可选) — 知识库名称（使用 content_base64 时必填；zip_url 时默认取文件名） |
+| **说明** | 从 ZIP 压缩包创建知识库并导入。支持 `zip_url`（远程 URL）或 `file_path`（服务端本地路径，Compose 推荐 `/data/inbox/...`）。本机调试请用 `skills/llm-wiki`。ZIP 顶层需包含 `raw/`、`wiki/`、`graph/` 中至少一个目录 |
+| **参数** | `zip_url` (str, 可选) — 远程 ZIP 文件 URL（优先使用）<br>`file_path` (str, 可选) — 服务端本地 ZIP 绝对路径<br>`kb_name` (str, 可选) — 知识库名称（默认取 URL/文件名） |
 | **返回** | `{"kb_id": <ID>, "kb_name": "<名称>", "raw_imported": N, "wiki_imported": N, "graph_imported": N, "skipped": N, "errors": N, "state": "<completed|unbuilt>"}` |
 | **证据** | [api_server.py:1065-1232](file:///c:/Users/ChengCihang/VSCode/llm-wiki-engine/server/api_server.py#L1065-L1232) |
 
 ```python
 @mcp.tool()
-def import_kb(zip_url: str = "", content_base64: str = "", file_path: str = "", kb_name: str = "") -> dict:
+def import_kb(zip_url: str = "", file_path: str = "", kb_name: str = "") -> dict:
     """从 ZIP 压缩包创建知识库并导入所有文件。"""
 ```
 
@@ -638,15 +638,15 @@ def build_knowledge(kb_id: int, instruction: str = "", incremental: bool = False
 | 属性 | 值 |
 |------|-----|
 | **工具名** | `upload_files` |
-| **说明** | 向已有知识库追加文件。支持单文件或 ZIP 压缩包。支持两种输入方式：`file_path`（本地路径）或 `content_base64` + `file_name`（Base64 编码） |
-| **参数** | `kb_id` (int) — 目标知识库 ID<br>`file_path` (str, 可选) — 本地文件或 ZIP 包的绝对路径<br>`content_base64` (str, 可选) — 文件内容的 Base64 编码<br>`file_name` (str, 可选) — 文件名（使用 content_base64 时必填）<br>`auto_update` (bool, 可选, 默认 `false`) — 上传后是否自动增量更新知识库 |
+| **说明** | 向已有知识库追加文件（单文件或 ZIP）。仅接受服务端可读 `file_path`（Compose 推荐 `/data/inbox/...`）；本机调试请用 `skills/llm-wiki` |
+| **参数** | `kb_id` (int) — 目标知识库 ID<br>`file_path` (str) — 服务端本地文件或 ZIP 绝对路径<br>`auto_update` (bool, 可选, 默认 `false`) — 上传后是否自动增量更新知识库 |
 | **返回** | `{"kb_id": <ID>, "file_name": "<名称>", "imported": N, "skipped": N, "errors": N, "update_result": {...}, "state": "completed"}` |
 | **证据** | [api_server.py:1372-1491](file:///c:/Users/ChengCihang/VSCode/llm-wiki-engine/server/api_server.py#L1372-L1491) |
 
 ```python
 @mcp.tool()
-def upload_files(kb_id: int, file_path: str = "", content_base64: str = "", file_name: str = "", auto_update: bool = False) -> dict:
-    """向已有知识库追加文件。支持单文件或 ZIP 压缩包。"""
+def upload_files(kb_id: int, file_path: str = "", auto_update: bool = False) -> dict:
+    """向已有知识库追加服务端本地文件。"""
 ```
 
 ### MCP-8. query_knowledge

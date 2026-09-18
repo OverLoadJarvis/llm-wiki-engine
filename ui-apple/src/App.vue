@@ -241,34 +241,41 @@ async function queryApi(question, onChunk) {
     const decoder = new TextDecoder()
     let buffer = ''
     let fullAnswer = ''
+    let currentEvent = 'message'
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
 
-      // Parse SSE lines
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.error) {
-              throw new Error(data.error)
-            }
-            if (data.done) {
-              return { answer: fullAnswer }
-            }
-            if (data.chunk) {
-              fullAnswer += data.chunk
-              onChunk(data.chunk)
-            }
-          } catch (e) {
-            // Re-throw server errors, ignore JSON parse errors on incomplete lines
-            if (e instanceof SyntaxError) continue
-            throw e
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '')
+        if (!line) {
+          currentEvent = 'message'
+          continue
+        }
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim() || 'message'
+          continue
+        }
+        if (!line.startsWith('data:')) continue
+        try {
+          const payload = JSON.parse(line.slice(5).trim() || '{}')
+          if (currentEvent === 'error') {
+            throw new Error(payload.error || payload.message || 'Stream error')
           }
+          if (currentEvent === 'done') {
+            return { answer: fullAnswer }
+          }
+          if (currentEvent === 'chunk' && payload.chunk) {
+            fullAnswer += payload.chunk
+            onChunk(payload.chunk)
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue
+          throw e
         }
       }
     }

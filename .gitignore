@@ -51,4 +51,8 @@ docs/孙子兵法/
 
 uploads/
 
+# Compose 共享投递目录（保留 inbox/.gitkeep）
+inbox/*
+!inbox/.gitkeep
+
 .cursor/
