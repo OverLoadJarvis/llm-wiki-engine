@@ -386,13 +386,25 @@ class WikiStorage:
         kb_id: int,
         category: str,
     ) -> list[dict[str, Any]]:
-        """List all files belonging to a top-level category ('graph' / 'raw' / 'wiki')."""
+        """List files under a category path (top-level or nested).
+
+        ``category`` is stored as the parent directory of each file
+        (e.g. ``raw``, ``raw/a``, ``wiki/concepts``).  Callers that pass a
+        top-level name like ``raw`` must also see nested files such as
+        ``raw/a/foo.md``.  Match by path prefix on ``relative_path`` (and
+        equivalently on ``category``) rather than equality alone.
+        """
+        category = category.replace("\\", "/").strip("/")
+        prefix = f"{category}/%"
         rows = self.conn.execute(
             "SELECT id, kb_id, category, relative_path, file_name, "
             "file_size, checksum, created_at, updated_at "
-            "FROM files WHERE kb_id = ? AND category = ? "
-            "ORDER BY relative_path",
-            (kb_id, category),
+            "FROM files WHERE kb_id = ? AND ("
+            "  relative_path LIKE ?"
+            "  OR category = ?"
+            "  OR category LIKE ?"
+            ") ORDER BY relative_path",
+            (kb_id, prefix, category, prefix),
         ).fetchall()
         return [dict(r) for r in rows]
 

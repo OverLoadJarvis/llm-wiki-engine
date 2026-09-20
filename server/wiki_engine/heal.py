@@ -105,7 +105,7 @@ class HealWorkflow:
         for entity in missing_entities:
             logger.info("--- 自愈实体: %s ---", entity)
             try:
-                sources = self._search_sources(entity, pages, max_sources)
+                sources = self._search_sources(kb_id, entity, pages, max_sources)
                 content = self._generate_entity_page(kb_id, entity, sources, model)
 
                 entity_path = f"wiki/entities/{entity}.md"
@@ -175,11 +175,12 @@ class HealWorkflow:
         return [name for name, count in mention_counts.items() if count >= min_refs]
 
     def _search_sources(
-        self, entity: str, pages: list[dict], max_sources: int = 15
+        self, kb_id: int, entity: str, pages: list[dict], max_sources: int = 15
     ) -> list[dict]:
         """查找引用了该实体的页面作为来源。
 
         Args:
+            kb_id: 项目 ID
             entity: 实体名称
             pages: 页面记录列表
             max_sources: 最大来源数

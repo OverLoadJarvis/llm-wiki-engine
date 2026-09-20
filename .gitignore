@@ -56,3 +56,4 @@ inbox/*
 !inbox/.gitkeep
 
 .cursor/
+.agents/
