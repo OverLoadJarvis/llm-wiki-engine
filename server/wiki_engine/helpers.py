@@ -18,6 +18,12 @@ from typing import Any
 from storage.db import WikiStorage
 from tools.utils import extract_wikilinks, strip_frontmatter, sha256
 from tools.logger import get_logger
+from wiki_engine.constants import (
+    EMPTY_INDEX_CONTENT,
+    INDEX_SECTION_SOURCES,
+    normalize_index_section_headers,
+    resolve_index_section,
+)
 
 logger = get_logger(__name__)
 
@@ -267,33 +273,46 @@ def extract_title_from_content(content: str) -> str:
     return "未知"
 
 
-def update_index(db, kb_id: int, new_entry: str, section: str = "源文档") -> None:
+def update_index(
+    db, kb_id: int, new_entry: str, section: str = INDEX_SECTION_SOURCES
+) -> None:
     """向 wiki/index.md 的指定节追加一条索引条目。
 
-    若 index.md 不存在，则创建包含标准节的初始索引。
-    若指定节不存在，则在末尾追加该节。
+    若 index.md 不存在，则创建包含 FORMATS.md 标准节的初始索引。
+    若指定节不存在，则在末尾追加该节。历史别名（如 ``Sources`` /
+    ``Comprehensive``）会先归一为规范标题再写入。
 
     Args:
         db: WikiStorage 数据库实例
         kb_id: 项目 ID
         new_entry: 要追加的索引行，例如 ``"- [标题](sources/slug.md) — 摘要"``
-        section: 目标节名称，默认 ``"源文档"``
+        section: 目标节名称，默认 ``来源文档``（亦接受历史英文别名）
     """
+    if not new_entry:
+        return
+
+    canonical = resolve_index_section(section)
     content = db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
     if not content:
-        content = (
-            "# Wiki Index\n\n"
-            "## Overview\n- [Overview](overview.md)\n\n"
-            "## Sources\n\n## Entities\n\n## Concepts\n\n## Comprehensive\n"
-        )
+        content = EMPTY_INDEX_CONTENT
+    else:
+        content = normalize_index_section_headers(content)
 
-    section_header = f"## {section}"
+    section_header = f"## {canonical}"
     if section_header in content:
-        content = content.replace(section_header + "\n", section_header + "\n" + new_entry + "\n")
+        content = content.replace(
+            section_header + "\n", section_header + "\n" + new_entry + "\n", 1
+        )
     else:
         content += f"\n{section_header}\n{new_entry}\n"
 
     db.add_file(kb_id, "wiki/index.md", content)
+    logger.info(
+        "Updated index: kb_id=%s section=%s entry_len=%d",
+        kb_id,
+        canonical,
+        len(new_entry),
+    )
 
 
 def append_log(db: WikiStorage, kb_id: int, entry: str) -> None:

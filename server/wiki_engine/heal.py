@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from storage.db import WikiStorage
-from wiki_engine.helpers import append_log
+from wiki_engine.helpers import append_log, update_index
+from wiki_engine.constants import INDEX_SECTION_ENTITIES
 from tools.utils import call_llm, extract_wikilinks
 from wiki_engine.prompt import HEAL_ENTITY_PROMPT
 from tools.logger import get_logger
@@ -115,7 +116,9 @@ class HealWorkflow:
 
                 rel_path = entity_path.replace("wiki/", "")
                 entity_entry = f"- [{entity}]({rel_path})"
-                self._update_index(kb_id, entity_entry)
+                update_index(
+                    self.db, kb_id, entity_entry, section=INDEX_SECTION_ENTITIES
+                )
 
                 logger.info("  -> 已保存: %s", entity_path)
 
@@ -228,31 +231,3 @@ class HealWorkflow:
         )
         result = call_llm(prompt, default_model=model, max_tokens=8192)
         return result
-
-    def _update_index(self, kb_id: int, entry: str) -> None:
-        """更新索引，添加实体条目。
-
-        Args:
-            kb_id: 项目 ID
-            entry: 索引条目，格式如 "- [实体名](entities/实体名.md)"
-        """
-        index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
-
-        if "## Entities" not in index_content:
-            index_content += "\n\n## Entities\n"
-
-        lines = index_content.splitlines()
-        new_lines = []
-        inserted = False
-
-        for line in lines:
-            new_lines.append(line)
-            if line.strip().startswith("## Entities") and not inserted:
-                inserted = True
-
-        if not inserted:
-            new_lines.append("## Entities")
-
-        new_lines.append(entry)
-
-        self.db.add_file(kb_id, "wiki/index.md", "\n".join(new_lines))

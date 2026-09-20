@@ -15,9 +15,9 @@ from datetime import date
 from typing import Any
 
 from storage.db import WikiStorage
-from wiki_engine.constants import SCHEMA_FILE
+from wiki_engine.constants import INDEX_SECTION_SYNTHESIS, SCHEMA_FILE
 from wiki_engine.prompt import QUERY_ANSWER_PROMPT, QUERY_RELEVANT_PAGES_PROMPT
-from wiki_engine.helpers import append_log
+from wiki_engine.helpers import append_log, update_index
 from tools.utils import call_llm, call_llm_stream
 from tools.logger import get_logger
 
@@ -254,9 +254,6 @@ last_updated: {today}
 """
         self.db.add_file(kb_id, synth_path, frontmatter + answer)
 
-        index_content = self.db.get_file_text_by_path(kb_id, "wiki/index.md") or ""
-        entry = f"- [{question[:60]}](syntheses/{slug}.md) — synthesis"
-        if "## 综合" in (index_content or ""):
-            index_content = index_content.replace("## 综合\n", f"## 综合\n{entry}\n")
-            self.db.add_file(kb_id, "wiki/index.md", index_content)
+        entry = f"- [{question[:60]}](syntheses/{slug}.md) — 综合回答"
+        update_index(self.db, kb_id, entry, section=INDEX_SECTION_SYNTHESIS)
         logger.info("  已保存到: %s", synth_path)

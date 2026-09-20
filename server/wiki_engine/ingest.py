@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from storage.db import WikiStorage
+from wiki_engine.constants import (
+    INDEX_SECTION_CONCEPTS,
+    INDEX_SECTION_ENTITIES,
+    INDEX_SECTION_SOURCES,
+)
 from wiki_engine.prompt import FORMAT_SELECT_PROMPT, INGEST_PROMPT
 from wiki_engine.format_schema import (
     build_ingest_schema,
@@ -43,6 +48,13 @@ logger = get_logger(__name__)
 
 # 格式预判时送入 LLM 的正文截断长度
 _FORMAT_SELECT_EXCERPT_CHARS = 3000
+
+
+def require_nonempty_ingest_slug(data: dict[str, Any]) -> None:
+    """校验摄入 JSON 含非空 slug；失败时抛 ValueError 触发 call_llm 重试。"""
+    slug = data.get("slug")
+    if not isinstance(slug, str) or not slug.strip():
+        raise ValueError("缺少必填字段 slug（必须为非空字符串）")
 
 
 class IngestWorkflow:
@@ -305,7 +317,7 @@ class IngestWorkflow:
             - ``validation``: 验证结果字典
 
         Raises:
-            RuntimeError: LLM 响应解析失败
+            RuntimeError: LLM 响应解析失败，或重试后仍缺少非空 slug
         """
         today = date.today().isoformat()
         source_hash = sha256(source_content)
@@ -339,19 +351,32 @@ class IngestWorkflow:
             ingest_instruction=ingest_instruction,
         )
         logger.info("  调用 LLM API...")
-        raw = call_llm(prompt, max_tokens=16384, validate_json=True)
+        raw = ""
         try:
+            raw = call_llm(
+                prompt,
+                max_tokens=16384,
+                validate_json=True,
+                validate_parsed=require_nonempty_ingest_slug,
+            )
             data = parse_json_from_response(raw)
-        except (ValueError, json.JSONDecodeError) as e:
+        except (ValueError, json.JSONDecodeError, RuntimeError) as e:
             from wiki_engine.constants import REPO_ROOT
             debug_file = REPO_ROOT / "tmp" / f"ingest_debug_{kb_id}.txt"
             debug_file.parent.mkdir(exist_ok=True)
-            debug_file.write_text(raw, encoding="utf-8")
-            raise RuntimeError(f"API 响应解析失败: {e}") from e
+            if raw:
+                debug_file.write_text(raw, encoding="utf-8")
+            logger.exception(
+                "Ingest LLM failed: kb_id=%s, file=%s, error=%s",
+                kb_id,
+                source_filename,
+                e,
+            )
+            raise RuntimeError(f"API 响应解析或校验失败: {e}") from e
 
         pages_created: list[str] = []
 
-        slug = data.get("slug", "")
+        slug = str(data["slug"]).strip()
         source_path = f"wiki/sources/{slug}.md"
         self.db.add_file(kb_id, source_path, data.get("source_page", ""))
         pages_created.append(source_path)
@@ -362,7 +387,7 @@ class IngestWorkflow:
             pages_created.append(wiki_path)
             entity_title = extract_title_from_content(page["content"])
             entity_entry = f"- [{entity_title}]({page['path']})"
-            update_index(self.db, kb_id, entity_entry, section="Entities")
+            update_index(self.db, kb_id, entity_entry, section=INDEX_SECTION_ENTITIES)
 
         for page in data.get("concept_pages", []):
             wiki_path = f"wiki/{page['path']}"
@@ -370,13 +395,13 @@ class IngestWorkflow:
             pages_created.append(wiki_path)
             concept_title = extract_title_from_content(page["content"])
             concept_entry = f"- [{concept_title}]({page['path']})"
-            update_index(self.db, kb_id, concept_entry, section="Concepts")
+            update_index(self.db, kb_id, concept_entry, section=INDEX_SECTION_CONCEPTS)
 
         # 更新概述
         if data.get("overview_update"):
             self.db.add_file(kb_id, "wiki/overview.md", data["overview_update"])
 
-        update_index(self.db, kb_id, data.get("index_entry", ""), section="Sources")
+        update_index(self.db, kb_id, data.get("index_entry", ""), section=INDEX_SECTION_SOURCES)
         append_log(self.db, kb_id, data.get("log_entry", ""))
 
         contradictions = data.get("contradictions", [])

@@ -217,7 +217,7 @@ update date: YYYY-MM-DD
 # Wiki Index
 
 ## 全局概览
-- [全局概览](overview.md) — 全局概览/综合页
+- [全局概览](overview.md) — 知识库全局总结
 
 ## 来源文档
 - [源文档标题](sources/slug.md) — 源文档摘要页
@@ -228,9 +228,13 @@ update date: YYYY-MM-DD
 ## 概念页
 - [概念名称](concepts/ConceptName.md) — 概念页描述
 
-## Synthesis
+## 综合页
 - [分析标题](syntheses/slug.md) — 问题回答
 ```
+
+索引节标题一律使用中文，与「实体页 / 概念页」并列；目录路径仍为 `syntheses/`，frontmatter `type: synthesis`。
+
+历史别名（写入时会归一为上表规范标题）：`Overview`→全局概览，`Sources`/`源文档`→来源文档，`Entities`→实体页，`Concepts`→概念页，`Synthesis`/`Syntheses`/`Comprehensive`/`综合`→综合页。
 
 ---
 
@@ -238,7 +242,7 @@ update date: YYYY-MM-DD
 
 **适用文件：** `wiki/overview.md`
 
-**用途：** `wiki/overview.md` 是整个 wiki 的全局概览/综合页，由 LLM 在每次摄入后自动更新。它整合了所有来源文档、实体和概念的核心信息，形成一份连贯的、持续演进的知识总结。
+**用途：** `wiki/overview.md` 是整个 wiki 的全局概览页，由 LLM 在每次摄入后自动更新。它整合了所有来源文档、实体和概念的核心信息，形成一份连贯的、持续演进的知识总结。与索引中的「综合页」（保存的单次查询回答）不同。
 
 此文件没有固定的 YAML frontmatter，正文结构由 LLM 根据当前 wiki 状态动态生成，通常包含：
 

@@ -86,15 +86,18 @@ def update_knowledge_base(kb_id: int, body: UpdateBody | None = None):
 def query_knowledge_base(kb_id: int, body: QueryBody):
     question = body.question
     stream = body.stream
-    engine = get_engine()
 
     if stream:
+        # Create engine inside the generator so SQLite is opened/used on the
+        # same thread that Starlette's iterate_in_threadpool pulls from.
         def generate():
+            engine = get_engine()
             try:
                 for chunk in engine.query_stream(kb_id, question):
                     yield format_sse("chunk", {"chunk": chunk})
                 yield format_sse("done", {})
             except Exception as e:
+                logger.exception("Query stream failed: kb_id=%s", kb_id)
                 yield format_sse("error", {"error": str(e)})
                 yield format_sse("done", {})
             finally:
@@ -102,6 +105,7 @@ def query_knowledge_base(kb_id: int, body: QueryBody):
 
         return sse_raw_response(generate())
 
+    engine = get_engine()
     try:
         answer = engine.query(kb_id, question)
         return {"answer": answer}

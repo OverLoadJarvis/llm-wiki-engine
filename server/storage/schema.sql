@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS kbs (
 CREATE TABLE IF NOT EXISTS files (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     kb_id        INTEGER NOT NULL,
-    category     TEXT    NOT NULL DEFAULT '', -- parent dir: 'graph', 'wiki/concepts', 'raw' etc.
-    relative_path TEXT   NOT NULL,            -- e.g. 'wiki/concepts/全面从严治党.md'
+    category     TEXT    NOT NULL DEFAULT '', -- canonical: graph|raw|wiki|wiki/sources|wiki/concepts|wiki/entities
+    relative_path TEXT   NOT NULL,            -- e.g. 'wiki/concepts/全面从严治党.md' or 'raw/a/foo.md'
     file_name    TEXT    NOT NULL,             -- basename: '全面从严治党.md'
     content      BLOB,                        -- raw file bytes (text or binary)
     content_text TEXT,                        -- text version for FTS; NULL for pure-binary files

@@ -2,8 +2,10 @@ import os
 import sys
 import re
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
 from collections import defaultdict
+from typing import Any
 
 from tools.logger import get_logger
 
@@ -22,7 +24,14 @@ INDEX_FILE = WIKI_DIR / "index.md"
 OVERVIEW_FILE = WIKI_DIR / "overview.md"
 
 
-def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "claude-3-5-sonnet-latest", max_tokens: int = 4096, validate_json: bool = False) -> str:
+def call_llm(
+    prompt: str,
+    model_env: str = "LLM_MODEL",
+    default_model: str = "claude-3-5-sonnet-latest",
+    max_tokens: int = 4096,
+    validate_json: bool = False,
+    validate_parsed: Callable[[Any], None] | None = None,
+) -> str:
     """
     调用LLM模型，返回模型回复
     
@@ -31,10 +40,16 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
         model_env: 环境变量名称，用于获取模型名称
         default_model: 默认模型名称
         max_tokens: 最大生成token数
-        validate_json: 是否校验返回内容为合法JSON，若校验失败则自动重试（最多5次，最后一次跳过校验）
+        validate_json: 是否校验返回内容为合法JSON，若校验失败则自动重试（最多5次；
+            未提供 validate_parsed 时，最后一次跳过校验直接返回）
+        validate_parsed: 可选；对 parse_json_from_response 结果做业务校验，失败则重试。
+            提供时隐含 JSON 校验；全部重试仍失败则抛出 RuntimeError（不返回坏内容）
     
     Returns:
         模型回复内容
+
+    Raises:
+        RuntimeError: 提供了 validate_parsed 且重试耗尽仍校验失败
     """
     try:
         from litellm import completion
@@ -74,6 +89,8 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
     
     current_prompt = prompt
     max_retries = 5
+    need_validate = validate_json or validate_parsed is not None
+    content = ""
     
     logger.info("Calling LLM: model=%s, prompt_len=%d, api_base=%s", model, len(prompt), api_base or "(default)")
     for attempt in range(1, max_retries + 1):
@@ -85,22 +102,39 @@ def call_llm(prompt: str, model_env: str = "LLM_MODEL", default_model: str = "cl
             logger.exception("LLM call failed: model=%s, attempt=%d", model, attempt)
             raise
         
-        # 最后一次不校验，直接返回
-        if not validate_json or attempt == max_retries:
+        if not need_validate:
+            return content
+
+        # 未提供业务校验时，最后一次保持历史行为：跳过校验直接返回
+        if validate_parsed is None and attempt == max_retries:
             logger.debug("Last attempt, not validating JSON: %s", content[:200])
             return content
         
-        # JSON 格式校验：复用 parse_json_from_response 处理 markdown 围栏等情况
         try:
-            parse_json_from_response(content)
+            data = parse_json_from_response(content)
+            if validate_parsed is not None:
+                validate_parsed(data)
             return content
-        except (ValueError, json.JSONDecodeError) as e:
+        except (ValueError, json.JSONDecodeError, TypeError) as e:
+            logger.warning(
+                "LLM response validation failed: model=%s, attempt=%d/%d, error=%s",
+                model,
+                attempt,
+                max_retries,
+                e,
+            )
+            if attempt == max_retries:
+                if validate_parsed is not None:
+                    raise RuntimeError(
+                        f"LLM 响应校验失败（已重试 {max_retries} 次）: {e}"
+                    ) from e
+                return content
             current_prompt = (
                 f"{prompt}\n\n"
-                f"【上次生成的JSON格式校验失败，请修正】\n"
+                f"【上次生成的JSON校验失败，请修正】\n"
                 f"错误信息：{e}\n"
                 f"你的上次回复：\n{content}\n\n"
-                f"请重新生成，确保输出合法的JSON格式。"
+                f"请重新生成，确保输出合法的JSON，并满足全部必填字段要求。"
             )
             logger.debug("LLM Attempt %d: %s", attempt, current_prompt[:200])
     
@@ -294,22 +328,37 @@ def build_wiki_context() -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def update_index(new_entry: str, section: str = "Sources"):
+def update_index(new_entry: str, section: str = "来源文档"):
     """
-    更新Wiki索引，添加新条目
-    
+    更新Wiki索引，添加新条目（文件系统版，与 FORMATS.md 索引格式一致）
+
     Args:
         new_entry: 新条目内容
         section: 要添加到的章节名称
     """
+    from wiki_engine.constants import (
+        EMPTY_INDEX_CONTENT,
+        normalize_index_section_headers,
+        resolve_index_section,
+    )
+
+    if not new_entry:
+        return
+
+    canonical = resolve_index_section(section)
     content = read_file(INDEX_FILE)
     if not content:
-        content = "# Wiki Index\n\n## Overview\n- [Overview](overview.md) — living synthesis\n\n## Sources\n\n## Entities\n\n## Concepts\n\n## Syntheses\n"
-    
-    section_header = f"## {section}"
+        content = EMPTY_INDEX_CONTENT
+    else:
+        content = normalize_index_section_headers(content)
+
+    section_header = f"## {canonical}"
     if section_header in content:
-        content = content.replace(section_header + "\n", section_header + "\n" + new_entry + "\n")
+        content = content.replace(
+            section_header + "\n", section_header + "\n" + new_entry + "\n", 1
+        )
     else:
         content += f"\n{section_header}\n{new_entry}\n"
-    
+
     write_file(INDEX_FILE, content)
+    logger.info("Updated filesystem index: section=%s entry_len=%d", canonical, len(new_entry))

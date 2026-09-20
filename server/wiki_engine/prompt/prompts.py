@@ -49,7 +49,7 @@ INGEST_PROMPT = """\
 只返回一个有效的 JSON 对象(不要 markdown 代码围栏，不要 JSON 之外的任何文字):
 {{
   "title": "源文档的人类可读标题，和页面中的title一致",
-  "slug": "文档索引，可以和标题相同",
+  "slug": "非空文档索引（kebab-case 或可读标识），禁止省略或空字符串，可以和标题相同",
   "source_page": "wiki/sources/<slug>.md 的完整 markdown 内容 — 使用格式规范中的源页面格式。关键：将关键人物、产品、概念和项目积极转换为内联 [[WikiLink]]",
   "index_entry": "- [标题](sources/slug.md) — 一行摘要",
   "overview_update": "wiki/overview.md 的完整更新内容，或 null",
@@ -64,6 +64,7 @@ INGEST_PROMPT = """\
 }}
 
 重要提示:
+- JSON 顶层字段 slug 必填且非空；缺少或为空视为无效响应
 - 来源页、实体页 和 概念页中的每一页都必须包含完整的 YAML frontmatter (title, slug, type, tags, sources 等字段)
 - WikiLink链接必须使用目标页面的 **slug（不含 .md 扩展名）**，而不是标题，不一致时使用 slug
 - 用户构建指令是用户自定义的，用于指导wiki生成的内容，务必重视参考。

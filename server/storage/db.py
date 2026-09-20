@@ -39,6 +39,18 @@ _TEXT_EXTENSIONS = {
     ".yaml", ".yml", ".toml", ".py", ".js", ".ts", ".css", ".rst",
 }
 
+# Canonical file.category values. Nested raw/graph paths collapse to the root;
+# wiki only keeps sources / concepts / entities as sub-categories.
+_CANONICAL_CATEGORIES = frozenset({
+    "graph",
+    "raw",
+    "wiki",
+    "wiki/sources",
+    "wiki/concepts",
+    "wiki/entities",
+})
+_WIKI_SUBCATEGORIES = frozenset({"sources", "concepts", "entities"})
+
 
 def _is_text_file(filepath: str | Path) -> bool:
     return Path(filepath).suffix.lower() in _TEXT_EXTENSIONS
@@ -85,6 +97,28 @@ class WikiStorage:
             """
         )
         self.conn.commit()
+        self._migrate_categories()
+
+    def _migrate_categories(self) -> None:
+        """Normalize legacy category values to the canonical set."""
+        placeholders = ",".join("?" for _ in _CANONICAL_CATEGORIES)
+        bad = self.conn.execute(
+            f"SELECT COUNT(*) AS c FROM files WHERE category NOT IN ({placeholders})",
+            tuple(_CANONICAL_CATEGORIES),
+        ).fetchone()["c"]
+        if not bad:
+            return
+        rows = self.conn.execute("SELECT id, relative_path FROM files").fetchall()
+        updated = 0
+        for row in rows:
+            new_cat = self._extract_category(row["relative_path"])
+            self.conn.execute(
+                "UPDATE files SET category = ? WHERE id = ?",
+                (new_cat, row["id"]),
+            )
+            updated += 1
+        self.conn.commit()
+        logger.info("Migrated file categories to canonical set: rows=%d", updated)
 
     def close(self) -> None:
         self.conn.close()
@@ -220,7 +254,26 @@ class WikiStorage:
 
     @staticmethod
     def _extract_category(relative_path: str) -> str:
-        return relative_path.rsplit("/", 1)[0]
+        """Map relative_path to a canonical category.
+
+        Allowed values: graph, raw, wiki, wiki/sources, wiki/concepts, wiki/entities.
+        Nested paths under raw/ or graph/ always store the top-level name only.
+        Other wiki subdirs (e.g. wiki/syntheses/) collapse to ``wiki``.
+        """
+        path = relative_path.replace("\\", "/").strip("/")
+        if not path:
+            return ""
+        parts = path.split("/")
+        root = parts[0]
+        if root == "raw":
+            return "raw"
+        if root == "graph":
+            return "graph"
+        if root == "wiki":
+            if len(parts) >= 2 and parts[1] in _WIKI_SUBCATEGORIES:
+                return f"wiki/{parts[1]}"
+            return "wiki"
+        return root
 
     def add_file(
         self,
@@ -261,11 +314,22 @@ class WikiStorage:
         self.conn.commit()
         return cur.lastrowid
 
-    def add_file_from_disk(self, kb_id: int, filepath: str | Path) -> int:
-        """Read a file from disk and store it under its relative path."""
+    def add_file_from_disk(
+        self,
+        kb_id: int,
+        filepath: str | Path,
+        relative_path: str | None = None,
+    ) -> int:
+        """Read a file from disk and store it.
+
+        ``filepath`` is used only for reading (must resolve correctly from
+        the process, ideally absolute).  ``relative_path`` is the key stored
+        in the DB; if omitted, ``filepath`` is stored as-is.
+        """
         filepath = Path(filepath)
         content = filepath.read_bytes()
-        return self.add_file(kb_id, str(filepath), content)
+        store_path = relative_path if relative_path is not None else str(filepath)
+        return self.add_file(kb_id, store_path, content)
 
     def get_file(self, file_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -386,25 +450,19 @@ class WikiStorage:
         kb_id: int,
         category: str,
     ) -> list[dict[str, Any]]:
-        """List files under a category path (top-level or nested).
+        """List files with an exact canonical category.
 
-        ``category`` is stored as the parent directory of each file
-        (e.g. ``raw``, ``raw/a``, ``wiki/concepts``).  Callers that pass a
-        top-level name like ``raw`` must also see nested files such as
-        ``raw/a/foo.md``.  Match by path prefix on ``relative_path`` (and
-        equivalently on ``category``) rather than equality alone.
+        Categories are: graph, raw, wiki, wiki/sources, wiki/concepts,
+        wiki/entities.  Nested raw files all have category ``raw``, so
+        ``list_files_by_category(kb, "raw")`` returns the full raw tree.
         """
         category = category.replace("\\", "/").strip("/")
-        prefix = f"{category}/%"
         rows = self.conn.execute(
             "SELECT id, kb_id, category, relative_path, file_name, "
             "file_size, checksum, created_at, updated_at "
-            "FROM files WHERE kb_id = ? AND ("
-            "  relative_path LIKE ?"
-            "  OR category = ?"
-            "  OR category LIKE ?"
-            ") ORDER BY relative_path",
-            (kb_id, prefix, category, prefix),
+            "FROM files WHERE kb_id = ? AND category = ? "
+            "ORDER BY relative_path",
+            (kb_id, category),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -519,10 +577,11 @@ class WikiStorage:
         for filepath in dir_path.rglob("*"):
             if filepath.is_file():
                 if strip_prefix and dir_path.parent != Path("."):
-                    rel = str(filepath.relative_to(dir_path.parent))
+                    rel = filepath.relative_to(dir_path.parent).as_posix()
                 else:
-                    rel = str(filepath)
-                self.add_file_from_disk(kb_id, rel)
+                    rel = filepath.as_posix()
+                # Read via absolute filepath; store only the relative key.
+                self.add_file_from_disk(kb_id, filepath, relative_path=rel)
                 count += 1
         return count
 

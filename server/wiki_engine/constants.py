@@ -4,6 +4,7 @@
 """
 
 from pathlib import Path
+import re
 
 # 后端工程根目录 (server/)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -53,3 +54,82 @@ GRAPH_CHECKPOINT_PATH = "graph/.inferred_edges.jsonl"
 
 DEFAULT_UPLOAD_DIR = REPO_ROOT / "uploads"
 """外部系统上传文件的默认本地目录，按项目名称分子文件夹存储。"""
+
+# ── wiki/index.md 节标题（与 FORMATS.md「索引格式」一致，一律中文展示）──
+# 路径与 frontmatter type 仍用英文：sources/entities/concepts/syntheses、
+# type: source|entity|concept|synthesis —— 那是机器标识，不进索引标题。
+
+INDEX_SECTION_OVERVIEW = "全局概览"
+INDEX_SECTION_SOURCES = "来源文档"
+INDEX_SECTION_ENTITIES = "实体页"
+INDEX_SECTION_CONCEPTS = "概念页"
+INDEX_SECTION_SYNTHESIS = "综合页"
+
+# 规范标题 → 历史别名（读写时归一到规范标题）
+# 别名覆盖：早期英文草稿、复数、旧中文短名
+INDEX_SECTION_ALIASES: dict[str, tuple[str, ...]] = {
+    INDEX_SECTION_OVERVIEW: (
+        INDEX_SECTION_OVERVIEW,
+        "Overview",
+    ),
+    INDEX_SECTION_SOURCES: (
+        INDEX_SECTION_SOURCES,
+        "Sources",
+        "源文档",  # 旧默认参数
+    ),
+    INDEX_SECTION_ENTITIES: (
+        INDEX_SECTION_ENTITIES,
+        "Entities",
+    ),
+    INDEX_SECTION_CONCEPTS: (
+        INDEX_SECTION_CONCEPTS,
+        "Concepts",
+    ),
+    INDEX_SECTION_SYNTHESIS: (
+        INDEX_SECTION_SYNTHESIS,
+        "Synthesis",  # FORMATS 旧稿 / 早期实现
+        "Syntheses",
+        "Comprehensive",  # helpers 曾用模板
+        "综合",  # query 曾查找的短名
+    ),
+}
+
+EMPTY_INDEX_CONTENT = (
+    "# Wiki Index\n\n"
+    f"## {INDEX_SECTION_OVERVIEW}\n"
+    "- [全局概览](overview.md) — 知识库全局总结\n\n"
+    f"## {INDEX_SECTION_SOURCES}\n\n"
+    f"## {INDEX_SECTION_ENTITIES}\n\n"
+    f"## {INDEX_SECTION_CONCEPTS}\n\n"
+    f"## {INDEX_SECTION_SYNTHESIS}\n"
+)
+
+
+def resolve_index_section(section: str) -> str:
+    """将节名（含历史别名）归一为 FORMATS.md 规范标题。"""
+    for canonical, aliases in INDEX_SECTION_ALIASES.items():
+        if section == canonical or section in aliases:
+            return canonical
+    return section
+
+
+def normalize_index_section_headers(content: str) -> str:
+    """把 index.md 中的历史节标题改写为规范标题。
+
+    按整行 ``## …`` 匹配，避免短别名（如「综合」）误伤规范名（「综合页」）。
+    别名按长度降序替换，进一步降低前缀冲突。
+    """
+    for canonical, aliases in INDEX_SECTION_ALIASES.items():
+        ordered = sorted(
+            (a for a in aliases if a != canonical),
+            key=len,
+            reverse=True,
+        )
+        for alias in ordered:
+            content = re.sub(
+                rf"(?m)^## {re.escape(alias)}[ \t]*$",
+                f"## {canonical}",
+                content,
+            )
+    return content
+
