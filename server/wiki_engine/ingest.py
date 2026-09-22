@@ -40,7 +40,7 @@ from wiki_engine.helpers import (
     update_index,
     validate_ingest,
 )
-from tools.utils import call_llm, parse_json_from_response, sha256
+from tools.utils import call_llm, parse_json_from_response, require_json_object, sha256
 from wiki_engine.kbs import FileImporter
 from tools.logger import get_logger
 
@@ -50,11 +50,20 @@ logger = get_logger(__name__)
 _FORMAT_SELECT_EXCERPT_CHARS = 3000
 
 
-def require_nonempty_ingest_slug(data: dict[str, Any]) -> None:
-    """校验摄入 JSON 含非空 slug；失败时抛 ValueError 触发 call_llm 重试。"""
+def require_nonempty_ingest_slug(data: Any) -> None:
+    """校验摄入 JSON 为对象且含非空 slug；失败时抛错触发 call_llm 重试。"""
+    require_json_object(data)
     slug = data.get("slug")
     if not isinstance(slug, str) or not slug.strip():
         raise ValueError("缺少必填字段 slug（必须为非空字符串）")
+
+
+def require_format_select_object(data: Any) -> None:
+    """校验格式预判 JSON 为对象；format_ids 若存在则须为列表。"""
+    require_json_object(data)
+    if "format_ids" in data and data["format_ids"] is not None:
+        if not isinstance(data["format_ids"], list):
+            raise TypeError("format_ids must be a list when present")
 
 
 class IngestWorkflow:
@@ -95,7 +104,7 @@ class IngestWorkflow:
             raw = call_llm(
                 prompt,
                 max_tokens=512,
-                validate_json=True,
+                validate_parsed=require_format_select_object,
             )
             data = parse_json_from_response(raw)
             selected = data.get("format_ids") or []
@@ -356,7 +365,6 @@ class IngestWorkflow:
             raw = call_llm(
                 prompt,
                 max_tokens=16384,
-                validate_json=True,
                 validate_parsed=require_nonempty_ingest_slug,
             )
             data = parse_json_from_response(raw)

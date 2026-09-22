@@ -18,7 +18,7 @@ from storage.db import WikiStorage
 from wiki_engine.constants import INDEX_SECTION_SYNTHESIS, SCHEMA_FILE
 from wiki_engine.prompt import QUERY_ANSWER_PROMPT, QUERY_RELEVANT_PAGES_PROMPT
 from wiki_engine.helpers import append_log, update_index
-from tools.utils import call_llm, call_llm_stream
+from tools.utils import call_llm, call_llm_stream, parse_json_from_response, require_string_list
 from tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -213,18 +213,24 @@ class QueryWorkflow:
                 index_content=index_content,
                 question=question,
             )
-            raw = call_llm(prompt, "LLM_MODEL_FAST", "claude-3-5-haiku-latest", max_tokens=5120, validate_json=True)
-            raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
-            raw = re.sub(r"\s*```$", "", raw.strip())
             try:
-                paths = json.loads(raw)
+                raw = call_llm(
+                    prompt,
+                    "LLM_MODEL_FAST",
+                    "claude-3-5-haiku-latest",
+                    max_tokens=1024,
+                    validate_parsed=require_string_list,
+                )
+                paths = parse_json_from_response(raw)
                 for p in paths:
                     wiki_path = f"wiki/{p}"
                     f = self.db.get_file_by_path(kb_id, wiki_path)
                     if f and f not in relevant:
                         relevant.append(f)
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (RuntimeError, ValueError, json.JSONDecodeError, TypeError) as e:
+                logger.warning(
+                    "LLM page selection failed, using keyword hits only: %s", e
+                )
         # 仅返回前 15 个相关页面
         return relevant[:15]
 

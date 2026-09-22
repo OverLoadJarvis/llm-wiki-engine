@@ -18,6 +18,8 @@ FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# apk manifest in 10-listen-on-ipv6-by-default.sh can hang on some hosts
+RUN rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
 
 EXPOSE 80
 

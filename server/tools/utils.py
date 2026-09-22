@@ -325,31 +325,50 @@ def page_id(path: Path) -> str:
     return path.relative_to(WIKI_DIR).as_posix().replace(".md", "")
 
 
-def parse_json_from_response(text: str) -> dict:
-    """
-    从模型回复中解析JSON对象
-    
-    Args:
-        text: 模型回复文本
-    
-    Returns:
-        解析后的字典
-    
-    Raises:
-        ValueError: 如果没有找到JSON对象
-        json.JSONDecodeError: 如果JSON格式无效
+def parse_json_from_response(text: str) -> Any:
+    """从模型回复中解析 JSON（对象或数组）。
+
+    会先去掉常见 reasoning / markdown 围栏，再提取最外层 JSON。
+    形状约束（必须是 dict / list）由调用方的 validate_parsed 负责。
     """
     import json
-    
-    # 移除markdown 代码围栏
-    text = re.sub(r"^```(?:json)?\s*", "", text.strip())
-    text = re.sub(r"\s*```$", "", text.strip())
 
-    # 查找最外层的JSON对象
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        raise ValueError("No JSON object found in response")
-    return json.loads(match.group())
+    text = (text or "").strip()
+    # MiniMax 等可能在 JSON 前输出 thinking
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<thinking>[\s\S]*?</thinking>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?think>", "", text, flags=re.IGNORECASE)
+    text = text.strip()
+
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    else:
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    obj_match = re.search(r"\{[\s\S]*\}", text)
+    arr_match = re.search(r"\[[\s\S]*\]", text)
+    if obj_match and (not arr_match or obj_match.start() <= arr_match.start()):
+        return json.loads(obj_match.group())
+    if arr_match:
+        return json.loads(arr_match.group())
+    raise ValueError("No JSON object or array found in response")
+
+
+def require_json_object(data: Any) -> None:
+    """validate_parsed 辅助：要求解析结果为 JSON 对象。"""
+    if not isinstance(data, dict):
+        raise TypeError(f"expected JSON object, got {type(data).__name__}")
+
+
+def require_string_list(data: Any) -> None:
+    """validate_parsed 辅助：要求解析结果为字符串数组。"""
+    if not isinstance(data, list):
+        raise TypeError(f"expected JSON array, got {type(data).__name__}")
+    for i, item in enumerate(data):
+        if not isinstance(item, str):
+            raise TypeError(f"item[{i}] must be a string, got {type(item).__name__}")
 
 
 def build_wiki_context() -> str:
