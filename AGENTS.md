@@ -40,12 +40,12 @@ llm-wiki-engine/
 │   ├── storage/            # SQLite（db.py + schema.sql）
 │   ├── tools/              # 转换、日志、LLM 工具等
 │   ├── .env.example        # 环境变量模板
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── Dockerfile          # Compose 后端镜像
 ├── ui-apple/               # Vue 3 前端
 ├── skills/llm-wiki/        # 本地 Agent 调试 Skill（REST CLI）
 ├── inbox/                  # Compose 与 MCP 共享投递目录
 ├── docker-compose.yml      # 官方部署（唯一）：frontend + backend
-├── Dockerfile.backend      # Compose 后端镜像（勿用已删除的根目录一体机 Dockerfile）
 └── README.md               # 完整 API / CLI / MCP / 部署说明
 ```
 

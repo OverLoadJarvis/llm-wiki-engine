@@ -130,6 +130,7 @@ llm-wiki-engine/
 │   ├── app/                         # FastAPI 应用（routers / MCP / SSE）
 │   ├── tests/                       # API 冒烟测试
 │   ├── requirements.txt             # Python 依赖
+│   ├── Dockerfile                   # Compose 后端镜像
 │   ├── pyproject.toml               # 项目配置（PEP 621）
 │   ├── FORMATS.md                   # Wiki 页面格式规范
 │   └── uv.lock                      # uv 依赖锁定文件
@@ -164,7 +165,6 @@ llm-wiki-engine/
 ├── .dockerignore
 ├── .gitignore
 ├── AGENTS.md                        # Agent / 项目指引
-├── Dockerfile.backend               # Compose 后端镜像
 ├── docker-compose.yml               # 官方部署：frontend + backend
 ├── LICENSE
 └── README.md
@@ -505,7 +505,7 @@ npm run build     # 生产构建
 | 服务 | 镜像构建 | 对外 |
 |------|----------|------|
 | `frontend` | `ui-apple/Dockerfile`（nginx + 静态资源） | **仅** `5173→80` |
-| `backend` | `Dockerfile.backend`（FastAPI + MCP） | 不映射；仅容器网内 `5000` / `8081` |
+| `backend` | `server/Dockerfile`（FastAPI + MCP） | 不映射；仅容器网内 `5000` / `8081` |
 
 统一入口：
 

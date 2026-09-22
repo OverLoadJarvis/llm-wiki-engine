@@ -125,6 +125,10 @@ def test_llm_settings(body: LlmTestBody):
         logger.error("litellm not installed")
         return {"ok": False, "error": "litellm 未安装"}
 
+    from tools.utils import configure_langfuse_tracing
+
+    configure_langfuse_tracing()
+
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": "Reply with OK"}],

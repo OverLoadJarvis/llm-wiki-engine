@@ -23,6 +23,49 @@ LOG_FILE = WIKI_DIR / "log.md"
 INDEX_FILE = WIKI_DIR / "index.md"
 OVERVIEW_FILE = WIKI_DIR / "overview.md"
 
+_langfuse_configured = False
+_langfuse_skip_logged = False
+
+
+def configure_langfuse_tracing() -> None:
+    """Turn on LiteLLM → Langfuse OTEL when public/secret keys and a host are set.
+
+    LiteLLM 1.88 reads LANGFUSE_HOST (or LANGFUSE_OTEL_HOST). LANGFUSE_BASE_URL
+    is accepted as an alias and copied into LANGFUSE_HOST when that is unset.
+    """
+    global _langfuse_configured, _langfuse_skip_logged
+    if _langfuse_configured:
+        return
+
+    host = (os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL") or "").strip().rstrip("/")
+    public_key = (os.getenv("LANGFUSE_PUBLIC_KEY") or "").strip()
+    secret_key = (os.getenv("LANGFUSE_SECRET_KEY") or "").strip()
+    if not host or not public_key or not secret_key:
+        if not _langfuse_skip_logged:
+            logger.info(
+                "Langfuse tracing skipped: host_set=%s, public_key_set=%s, secret_key_set=%s",
+                bool(host),
+                bool(public_key),
+                bool(secret_key),
+            )
+            _langfuse_skip_logged = True
+        return
+
+    if not (os.getenv("LANGFUSE_HOST") or "").strip():
+        os.environ["LANGFUSE_HOST"] = host
+
+    try:
+        import litellm
+
+        litellm.success_callback = ["langfuse_otel"]
+        litellm.failure_callback = ["langfuse_otel"]
+    except Exception:
+        logger.exception("Failed to enable Langfuse tracing: host=%s", host)
+        return
+
+    _langfuse_configured = True
+    logger.info("Langfuse tracing enabled: host=%s, callback=langfuse_otel", host)
+
 
 def call_llm(
     prompt: str,
@@ -56,6 +99,8 @@ def call_llm(
     except ImportError:
         logger.error("litellm not installed. Run: pip install litellm")
         sys.exit(1)
+
+    configure_langfuse_tracing()
 
     from tools.llm_config import get_resolved
 
@@ -159,6 +204,8 @@ def call_llm_stream(prompt: str, model_env: str = "LLM_MODEL", default_model: st
     except ImportError:
         logger.error("litellm not installed. Run: pip install litellm")
         sys.exit(1)
+
+    configure_langfuse_tracing()
 
     from tools.llm_config import get_resolved
 
