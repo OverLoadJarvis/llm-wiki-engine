@@ -130,7 +130,7 @@
       <ChatPanel
         v-model:open="chatOpen"
         :current-kb-id="currentKbId"
-        :query-api="queryApi"
+        :chat-api="chatApi"
         :open-wiki-link="openWikiLink"
       />
     </div>
@@ -224,65 +224,65 @@ const graphAdjacencyMap = computed(() => graphViewRef.value?.adjacencyMap || new
 const graphNodeIndex = computed(() => graphViewRef.value?.nodeIndex || new Map())
 
 // ── API Wrappers ──────────────────────────────────────────────
-async function queryApi(question, onChunk) {
-  const url = `/api/kbs/${currentKbId.value}/query`
+async function chatApi(messages, onEvent) {
+  const url = `/api/kbs/${currentKbId.value}/chat`
+  console.log('[api] POST /chat', { kbId: currentKbId.value, messages: messages.length })
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, stream: !!onChunk })
+    body: JSON.stringify({ messages })
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    console.error('[api] POST /chat failed', err.error || res.statusText)
     throw new Error(err.error || `HTTP ${res.status}`)
   }
 
-  if (onChunk) {
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let fullAnswer = ''
-    let currentEvent = 'message'
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentEvent = 'message'
+  let fullAnswer = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
 
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const rawLine of lines) {
-        const line = rawLine.replace(/\r$/, '')
-        if (!line) {
-          currentEvent = 'message'
-          continue
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, '')
+      if (!line) {
+        currentEvent = 'message'
+        continue
+      }
+      if (line.startsWith('event:')) {
+        currentEvent = line.slice(6).trim() || 'message'
+        continue
+      }
+      if (!line.startsWith('data:')) continue
+      try {
+        const payload = JSON.parse(line.slice(5).trim() || '{}')
+        if (currentEvent === 'error') {
+          throw new Error(payload.error || payload.message || 'Stream error')
         }
-        if (line.startsWith('event:')) {
-          currentEvent = line.slice(6).trim() || 'message'
-          continue
+        if (currentEvent === 'done') {
+          console.log('[api] POST /chat ok')
+          return { answer: fullAnswer }
         }
-        if (!line.startsWith('data:')) continue
-        try {
-          const payload = JSON.parse(line.slice(5).trim() || '{}')
-          if (currentEvent === 'error') {
-            throw new Error(payload.error || payload.message || 'Stream error')
-          }
-          if (currentEvent === 'done') {
-            return { answer: fullAnswer }
-          }
-          if (currentEvent === 'chunk' && payload.chunk) {
-            fullAnswer += payload.chunk
-            onChunk(payload.chunk)
-          }
-        } catch (e) {
-          if (e instanceof SyntaxError) continue
-          throw e
+        if (currentEvent === 'token' && payload.content) {
+          fullAnswer += payload.content
         }
+        if (onEvent) onEvent(currentEvent, payload)
+      } catch (e) {
+        if (e instanceof SyntaxError) continue
+        throw e
       }
     }
-    return { answer: fullAnswer }
   }
-
-  return res.json()
+  console.log('[api] POST /chat ok')
+  return { answer: fullAnswer }
 }
 
 async function createKbApi({ name, description }) {

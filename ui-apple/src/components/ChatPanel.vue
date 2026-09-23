@@ -11,8 +11,8 @@
             </svg>
           </div>
           <div>
-            <h3>Knowledge Base Q&A</h3>
-            <span class="chat-subtitle">AI-powered answers</span>
+            <h3>知识库管理员</h3>
+            <span class="chat-subtitle">可对话，也可查阅 wiki / raw</span>
           </div>
         </div>
         <button class="chat-close" @click="closePanel" title="Close chat">
@@ -29,7 +29,7 @@
             <circle cx="12" cy="12" r="3" />
             <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4" />
           </svg>
-          <p>Ask questions about your knowledge base.<br/>AI will answer based on the content.</p>
+          <p>你好，我是本知识库的管理员。<br/>可以直接聊天，或让我帮你查阅库内资料。</p>
         </div>
 
         <div v-for="(msg, i) in messages" :key="i" class="chat-message" :class="msg.role">
@@ -41,6 +41,10 @@
           </div>
           <div class="chat-bubble">
             <template v-if="msg.role === 'assistant'">
+              <details v-if="msg.thinking" class="chat-thinking">
+                <summary>Thinking</summary>
+                <pre class="chat-thinking-body">{{ msg.thinking }}</pre>
+              </details>
               <span v-html="rendered(msg.content)"></span>
             </template>
             <template v-else>{{ msg.content }}</template>
@@ -64,7 +68,7 @@
         <textarea
           ref="inputRef"
           v-model="inputText"
-          placeholder="Ask a question, press Enter to send..."
+          placeholder="跟管理员说点什么，Enter 发送…"
           rows="1"
           @keydown="onKeyDown"
           @input="autoResize"
@@ -83,11 +87,12 @@
 <script setup>
 import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown.js'
+import { splitThinking, stripThinking } from '../utils/thinking.js'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
   currentKbId: { type: [String, Number], default: null },
-  queryApi: { type: Function, required: true },
+  chatApi: { type: Function, required: true },
   openWikiLink: { type: Function, default: null }
 })
 
@@ -170,15 +175,50 @@ async function sendMessage() {
   })
 
   let assistantMsg = null
+  let statusLine = false
 
   try {
-    await props.queryApi(text, (chunk) => {
-      if (!assistantMsg) {
+    // History: body only (strip think tags as defense)
+    const history = messages.value.map((m) => ({
+      role: m.role,
+      content: stripThinking(m.content || ''),
+    }))
+    await props.chatApi(history, (event, payload) => {
+      if (event === 'tool_start') {
         isTyping.value = false
-        messages.value.push({ role: 'assistant', content: chunk })
-        assistantMsg = messages.value[messages.value.length - 1]
-      } else {
-        assistantMsg.content += chunk
+        const name = payload.name || 'tool'
+        const note = `*正在使用工具 \`${name}\`…*`
+        if (!assistantMsg) {
+          messages.value.push({ role: 'assistant', content: note, thinking: '' })
+          assistantMsg = messages.value[messages.value.length - 1]
+        } else {
+          assistantMsg.content += (assistantMsg.content ? '\n\n' : '') + note
+        }
+        statusLine = true
+      } else if (event === 'token' && (payload.content || payload.thinking)) {
+        isTyping.value = false
+        let content = payload.content || ''
+        let thinking = payload.thinking || ''
+        if (!thinking && content) {
+          const split = splitThinking(content)
+          content = split.content
+          thinking = split.thinking
+        }
+        if (!assistantMsg) {
+          messages.value.push({ role: 'assistant', content, thinking })
+          assistantMsg = messages.value[messages.value.length - 1]
+        } else if (statusLine) {
+          assistantMsg.content = content
+          assistantMsg.thinking = thinking || ''
+        } else {
+          assistantMsg.content += content
+          if (thinking) {
+            assistantMsg.thinking = assistantMsg.thinking
+              ? `${assistantMsg.thinking}\n\n${thinking}`
+              : thinking
+          }
+        }
+        statusLine = false
       }
       nextTick(() => {
         if (messagesRef.value) {
@@ -200,6 +240,8 @@ async function sendMessage() {
     } else {
       messages.value.push({ role: 'assistant', content: `Error: ${err.message}` })
     }
+  } finally {
+    isTyping.value = false
   }
 }
 </script>
@@ -397,6 +439,49 @@ async function sendMessage() {
   border-radius: 6px;
   overflow-x: auto;
   margin: 6px 0;
+}
+
+.chat-thinking {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.chat-thinking summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chat-thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-thinking summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+
+.chat-thinking[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.chat-thinking-body {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
 }
 
 .typing-dots {

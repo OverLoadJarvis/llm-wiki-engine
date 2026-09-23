@@ -52,6 +52,17 @@ class QueryBody(BaseModel):
     stream: bool = False
 
 
+class ChatMessageBody(BaseModel):
+    role: Literal["user", "assistant", "system"] = "user"
+    content: str = ""
+
+
+class ChatBody(BaseModel):
+    """Librarian agent chat. Frontend holds history and sends full messages[]."""
+
+    messages: list[ChatMessageBody] = Field(default_factory=list)
+
+
 class ImportDirBody(BaseModel):
     source_dir: str = ""
     stream: bool = False

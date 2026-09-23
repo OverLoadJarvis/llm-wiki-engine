@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.deps import init_llm_config_cache, resolve_frontend_dist
 from app.mcp_service import MCP_PORT, start_mcp_server_thread
-from app.routers import files, import_export, kbs, settings, upload, workflows
+from app.routers import files, import_export, kbs, settings, upload, workflows, chat
 from tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(files.router)
     app.include_router(workflows.router)
+    app.include_router(chat.router)
     app.include_router(upload.router)
 
     frontend_dist = resolve_frontend_dist()
